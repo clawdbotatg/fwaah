@@ -12,12 +12,14 @@ admin theme, modernized to react-scripts 5 + dart-sass.
 
 ```
 npm install
-npm start          # http://localhost:3000
+cp .env.example .env   # then set NODE_RPC_URL to your node
+npm start              # http://localhost:3000
 ```
 
-Point at a different RPC with `NODE_RPC_URL=https://eth-mainnet.g.alchemy.com/v2/KEY npm start`
-(default is the local node `http://192.168.68.54:8545`). The dev server proxies
-`/rpc` to it, so the browser never deals with CORS.
+`NODE_RPC_URL` is where the dev server's `/rpc` proxy forwards JSON-RPC calls
+(default `http://127.0.0.1:8545`) — your own node on any host, or an Alchemy
+URL. The proxy means the browser never deals with CORS. It also works inline:
+`NODE_RPC_URL=https://eth-mainnet.g.alchemy.com/v2/KEY npm start`.
 
 ## RPC resolution (works out of the box when hosted)
 

@@ -1,12 +1,12 @@
 const { createProxyMiddleware } = require('http-proxy-middleware');
 
 // Proxy JSON-RPC calls to the local eth node so the browser never deals with CORS.
-// Override the node URL with NODE_RPC_URL when starting: NODE_RPC_URL=http://host:8545 npm start
+// Set NODE_RPC_URL in .env (see .env.example) or inline: NODE_RPC_URL=http://host:8545 npm start
 module.exports = function (app) {
   app.use(
     '/rpc',
     createProxyMiddleware({
-      target: process.env.NODE_RPC_URL || 'http://192.168.68.54:8545',
+      target: process.env.NODE_RPC_URL || 'http://127.0.0.1:8545',
       changeOrigin: true,
       pathRewrite: { '^/rpc': '' },
     })
