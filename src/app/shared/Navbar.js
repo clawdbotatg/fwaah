@@ -1,9 +1,20 @@
 import React, { Component } from 'react';
 import { Link } from 'react-router-dom';
-import { FWA_ADDRESS, ETHERSCAN, RPC_LABEL } from '../fwa/fwa';
+import { FWA_ADDRESS, ETHERSCAN, RPC_LABEL, onRpcLabel } from '../fwa/fwa';
 import FwaAddress from '../fwa/FwaAddress';
 
 class Navbar extends Component {
+  state = { rpcLabel: RPC_LABEL };
+
+  componentDidMount() {
+    this.offLabel = onRpcLabel((rpcLabel) => this.setState({ rpcLabel }));
+    this.setState({ rpcLabel: RPC_LABEL }); // in case it resolved before mount
+  }
+
+  componentWillUnmount() {
+    this.offLabel();
+  }
+
   toggleOffcanvas() {
     document.querySelector('.sidebar-offcanvas').classList.toggle('active');
   }
@@ -34,7 +45,7 @@ class Navbar extends Component {
             </li>
             <li className="nav-item d-none d-lg-block">
               <span className="nav-link text-muted">
-                <i className="mdi mdi-server text-success"></i> {RPC_LABEL}
+                <i className="mdi mdi-server text-success"></i> {this.state.rpcLabel}
               </span>
             </li>
           </ul>

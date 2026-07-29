@@ -48,8 +48,10 @@ function detectHosted() {
 
 export const HOSTED = detectHosted();
 
-// Human label for the active RPC — never exposes a LAN IP or an API key path.
-export const RPC_LABEL = (() => {
+// Human label for the active RPC — hosted surfaces never expose a LAN IP or an
+// API key path. At home, the dev server's /rpc-target endpoint resolves the
+// proxy's real host async; subscribe with onRpcLabel to catch the update.
+export let RPC_LABEL = (() => {
   if (RPC_URL.startsWith('/api/')) return 'shared RPC · edge cached';
   if (RPC_URL === '/rpc') return 'local node';
   try {
@@ -58,6 +60,24 @@ export const RPC_LABEL = (() => {
     return 'custom RPC';
   }
 })();
+
+const rpcLabelSubs = new Set();
+export function onRpcLabel(fn) {
+  rpcLabelSubs.add(fn);
+  return () => rpcLabelSubs.delete(fn);
+}
+
+if (RPC_URL === '/rpc') {
+  fetch('/rpc-target')
+    .then((r) => (r.ok ? r.json() : null))
+    .then((j) => {
+      if (j && j.host) {
+        RPC_LABEL = 'local node · ' + j.host;
+        rpcLabelSubs.forEach((fn) => fn(RPC_LABEL));
+      }
+    })
+    .catch(() => { /* keep the generic label */ });
+}
 
 // poll cadence per surface, ms
 export const POLL = HOSTED

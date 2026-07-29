@@ -1,5 +1,5 @@
 import React, { Component } from 'react';
-import { rpcBatch, toBig, toNum, fmtNum, fmtAge, POLL, HOSTED, RPC_LABEL } from '../fwa/fwa';
+import { rpcBatch, toBig, toNum, fmtNum, fmtAge, POLL, HOSTED, RPC_LABEL, onRpcLabel } from '../fwa/fwa';
 
 const POLL_MS = POLL.node; // hard against a local node, gentle when hosted
 
@@ -8,17 +8,20 @@ const POLL_MS = POLL.node; // hard against a local node, gentle when hosted
 // what a remote RPC can answer — and if the RPC isn't set up, a friendly hint
 // instead of anyone's LAN address.
 export class NodeStatusBar extends Component {
-  state = { block: null, ts: null, peers: null, syncing: null, baseFee: null, now: Date.now(), error: false };
+  state = { block: null, ts: null, peers: null, syncing: null, baseFee: null, now: Date.now(), error: false, rpcLabel: RPC_LABEL };
 
   componentDidMount() {
     this.poll();
     this.pollTimer = setInterval(() => this.poll(), POLL_MS);
     this.ageTimer = setInterval(() => this.setState({ now: Date.now() }), 1000);
+    this.offLabel = onRpcLabel((rpcLabel) => this.setState({ rpcLabel }));
+    this.setState({ rpcLabel: RPC_LABEL }); // in case it resolved before mount
   }
 
   componentWillUnmount() {
     clearInterval(this.pollTimer);
     clearInterval(this.ageTimer);
+    this.offLabel();
   }
 
   async poll() {
@@ -67,7 +70,7 @@ export class NodeStatusBar extends Component {
         <div className="d-flex flex-wrap align-items-center px-3 py-2">
           <span className="node-stat">
             <i className="mdi mdi-server text-info"></i>
-            <span className="text-muted">{RPC_LABEL}</span>
+            <span className="text-muted">{this.state.rpcLabel}</span>
             {error && <span className="badge badge-outline-danger ml-2">unreachable</span>}
           </span>
           <span className="node-stat">
