@@ -1,0 +1,65 @@
+import React, { Component } from 'react';
+import { Link, withRouter } from 'react-router-dom';
+import { FWA_ADDRESS, ETHERSCAN } from '../fwa/fwa';
+
+class Sidebar extends Component {
+  render() {
+    return (
+      <nav className="sidebar sidebar-offcanvas" id="sidebar">
+        <div className="sidebar-brand-wrapper d-none d-lg-flex align-items-center justify-content-center fixed-top">
+          <Link className="sidebar-brand brand-logo fwaah-brand" to="/dashboard">
+            <span className="fwaah-title">FWAAH<span className="text-primary">!</span></span>
+            <span className="fwaah-tagline">Fake World Assets at home</span>
+          </Link>
+          <Link className="sidebar-brand brand-logo-mini" to="/dashboard">
+            <span className="h5 mb-0 font-weight-bold text-white">F!</span>
+          </Link>
+        </div>
+        <ul className="nav">
+          <li className="nav-item nav-category">
+            <span className="nav-link">Monitor</span>
+          </li>
+          <li className={this.isPathActive('/dashboard') ? 'nav-item menu-items active' : 'nav-item menu-items'}>
+            <Link className="nav-link" to="/dashboard">
+              <span className="menu-icon"><i className="mdi mdi-speedometer"></i></span>
+              <span className="menu-title">Dashboard</span>
+            </Link>
+          </li>
+          <li className="nav-item nav-category">
+            <span className="nav-link">Links</span>
+          </li>
+          <li className="nav-item menu-items">
+            <a className="nav-link" href={ETHERSCAN + '/address/' + FWA_ADDRESS} target="_blank" rel="noopener noreferrer">
+              <span className="menu-icon"><i className="mdi mdi-file-document"></i></span>
+              <span className="menu-title">Contract</span>
+            </a>
+          </li>
+          <li className="nav-item menu-items">
+            <a className="nav-link" href={'https://repo.sourcify.dev/contracts/full_match/1/' + FWA_ADDRESS + '/'} target="_blank" rel="noopener noreferrer">
+              <span className="menu-icon"><i className="mdi mdi-code-tags"></i></span>
+              <span className="menu-title">Verified Source</span>
+            </a>
+          </li>
+        </ul>
+      </nav>
+    );
+  }
+
+  isPathActive(path) {
+    return this.props.location.pathname.startsWith(path);
+  }
+
+  componentDidMount() {
+    const body = document.querySelector('body');
+    document.querySelectorAll('.sidebar .nav-item').forEach((el) => {
+      el.addEventListener('mouseover', function () {
+        if (body.classList.contains('sidebar-icon-only')) el.classList.add('hover-open');
+      });
+      el.addEventListener('mouseout', function () {
+        if (body.classList.contains('sidebar-icon-only')) el.classList.remove('hover-open');
+      });
+    });
+  }
+}
+
+export default withRouter(Sidebar);

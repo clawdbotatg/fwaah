@@ -1,0 +1,414 @@
+/* You can add global styles to this file, and also import other style files */
+
+/* === Plugin styles === */
+
+
+
+
+@import "~bootstrap/scss/functions";
+@import "~bootstrap/scss/variables";
+
+@import "../assets/styles/variables";
+@import "~compass-mixins/lib/compass";
+@import "~compass-mixins/lib/animate";
+@import "~bootstrap/scss/bootstrap";
+@import "../assets/styles/fonts";
+@import "../assets/styles/functions";
+
+/* === Icon fonts === */
+@import "~@mdi/font/scss/materialdesignicons";
+
+
+/* === Template mixins === */
+@import "../assets/styles/mixins/animation";
+@import "../assets/styles/mixins/badges";
+@import "../assets/styles/mixins/buttons";
+@import "../assets/styles/mixins/misc";
+@import "../assets/styles/mixins/color-functions";
+@import "../assets/styles/mixins/cards";
+@import "../assets/styles/mixins/blockqoute";
+
+
+/* === Core Styles === */
+@import "../assets/styles/typography";
+@import "../assets/styles/reset";
+@import "../assets/styles/responsive";
+@import "../assets/styles/misc";
+@import "../assets/styles/utilities";
+@import "../assets/styles/demo";
+@import "../assets/styles/spinner";
+@import "../assets/styles/dashboard";
+
+/* === Components === */
+
+@import "../assets/styles/components/checkbox-radio";
+@import "../assets/styles/components/forms";
+@import "../assets/styles/components/icons";
+@import "../assets/styles/components/tables";
+@import "../assets/styles/components/buttons";
+@import "../assets/styles/components/breadcrumbs";
+@import "../assets/styles/components/badges";
+@import "../assets/styles/components/cards";
+@import "../assets/styles/components/preview";
+@import "../assets/styles/components/lists";
+@import "../assets/styles/components/todo-list";
+@import "../assets/styles/components/dropdowns";
+@import "../assets/styles/components/loaders/loaders";
+
+@import "../assets/styles/components/landing-screens/auth";
+
+/* === Plugin Overrides === */
+
+/* === Layout === */
+@import "../assets/styles/navbar";
+@import "../assets/styles/sidebar";
+@import "../assets/styles/footer";
+@import "../assets/styles/layout";
+/* === FWA live pull ticker === */
+.pull-ticker-card {
+  overflow: hidden;
+
+  .pull-ticker-head {
+    flex-shrink: 0;
+    padding: 0.65rem 1rem;
+    border-right: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.02);
+    min-width: 150px;
+
+    .pull-ticker-live {
+      font-size: 0.8rem;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      color: #fc424a;
+      white-space: nowrap;
+    }
+
+    .pull-ticker-sub {
+      font-size: 0.72rem;
+      white-space: nowrap;
+    }
+  }
+
+  .pull-live-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    margin-right: 4px;
+    border-radius: 50%;
+    background: #fc424a;
+    animation: pull-live-pulse 1.4s ease-in-out infinite;
+  }
+
+  .pull-ticker-strip {
+    display: flex;
+    align-items: flex-start;
+    align-content: flex-start;
+    flex-wrap: wrap;
+    overflow: hidden;
+    // three rows of fixed-height tiles; anything older is clipped
+    // 8.8px padding + 3 * (156px tile + 7.2px margin)
+    max-height: 498px;
+    padding: 0.55rem 0.75rem;
+    -webkit-mask-image: linear-gradient(90deg, #000 94%, transparent);
+    mask-image: linear-gradient(90deg, #000 94%, transparent);
+  }
+
+  .pull-ticker-item {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    flex-shrink: 0;
+    width: 104px;
+    max-width: 104px;
+    height: 156px;
+    overflow: hidden;
+    margin-right: 0.45rem;
+    margin-bottom: 0.45rem;
+    padding: 0.3rem 0.3rem 0.35rem;
+    border-radius: 6px;
+    background: #2a3038;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    font-size: 0.68rem;
+    color: #e2e2e2;
+    white-space: nowrap;
+    text-decoration: none;
+    animation: pull-ticker-in 0.5s ease-out;
+
+    &:hover {
+      background: #343b45;
+      text-decoration: none;
+      color: #ffffff;
+    }
+
+    .pull-ticker-art {
+      width: 96px;
+      height: 96px;
+      max-width: 96px;
+      max-height: 96px;
+      object-fit: cover;
+      border-radius: 4px;
+      margin-bottom: 0.25rem;
+      background: #191c24;
+    }
+
+    .pull-ticker-art-placeholder {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+
+      i.mdi {
+        font-size: 2rem;
+        opacity: 0.6;
+      }
+    }
+
+    .fwa-address {
+      max-width: 96px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .pull-ticker-eth {
+      font-weight: 600;
+      line-height: 1.2;
+    }
+
+    .pull-ticker-age {
+      color: #6c7293;
+      font-size: 0.62rem;
+      line-height: 1.2;
+    }
+  }
+
+}
+
+@keyframes pull-ticker-in {
+  from {
+    width: 0;
+    max-width: 0;
+    padding-left: 0;
+    padding-right: 0;
+    margin-right: 0;
+    opacity: 0;
+  }
+  to {
+    width: 104px;
+    max-width: 104px;
+    padding-left: 0.3rem;
+    padding-right: 0.3rem;
+    margin-right: 0.45rem;
+    opacity: 1;
+  }
+}
+
+@keyframes pull-live-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+/* === high value pulls row === */
+.hv-card {
+  .pull-ticker-strip {
+    flex-wrap: nowrap;
+    max-height: none;
+    align-items: center;
+  }
+
+  .hv-title {
+    color: #ffab00 !important;
+
+    i.mdi {
+      margin-right: 2px;
+    }
+  }
+
+  .hv-item {
+    width: 158px;
+    max-width: 158px;
+    height: auto;
+    animation: none;
+
+    .hv-art {
+      width: 150px;
+      height: 150px;
+      max-width: 150px;
+      max-height: 150px;
+    }
+
+    .fwa-address {
+      max-width: 150px;
+    }
+
+    .hv-eth {
+      font-size: 0.85rem;
+      font-weight: 700;
+      line-height: 1.3;
+    }
+  }
+
+}
+
+/* === node status bar === */
+.node-status-card {
+  .node-stat {
+    margin-right: 1.75rem;
+    font-size: 0.8rem;
+    white-space: nowrap;
+
+    i.mdi {
+      margin-right: 0.3rem;
+    }
+
+    strong {
+      font-weight: 600;
+      color: #ffffff;
+    }
+  }
+}
+
+.node-block-flash {
+  animation: node-flash 0.9s ease-out;
+}
+
+@keyframes node-flash {
+  from { color: #00d25b; }
+  to { color: #ffffff; }
+}
+
+/* === scaffold-eth style address === */
+.fwa-address {
+  display: inline-flex;
+  align-items: center;
+  color: #e2e2e2;
+  text-decoration: none;
+  vertical-align: middle;
+
+  &:hover {
+    color: #0090e7;
+    text-decoration: none;
+  }
+
+  .fwa-address-blockie {
+    border-radius: 50%;
+    margin-right: 0.3rem;
+    flex-shrink: 0;
+  }
+
+  &.fwa-address-ens .fwa-address-label {
+    color: #8f5fe8;
+    font-weight: 500;
+  }
+
+  &.fwa-address-ens:hover .fwa-address-label {
+    color: #0090e7;
+  }
+}
+
+.fwa-address-xs {
+  font-size: 0.72rem;
+  .fwa-address-blockie { width: 14px; height: 14px; }
+}
+
+.fwa-address-sm {
+  font-size: 0.8rem;
+  .fwa-address-blockie { width: 18px; height: 18px; }
+}
+
+.fwa-address-base {
+  font-size: 0.9rem;
+  .fwa-address-blockie { width: 24px; height: 24px; }
+}
+
+/* === pull panel === */
+.pull-panel {
+  .pull-panel-win {
+    width: 158px;
+
+    .btn-block {
+      font-size: 0.7rem;
+      padding: 0.25rem 0.4rem;
+    }
+  }
+
+  .btn-xs {
+    font-size: 0.7rem;
+    line-height: 1.2;
+  }
+}
+
+/* === FWAAH! brand === */
+// taller brand area than the theme default (70px) so the wordmark can breathe
+.sidebar {
+  padding-top: 100px;
+
+  .sidebar-brand-wrapper {
+    height: 100px;
+  }
+}
+
+.fwaah-brand {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  line-height: 1;
+  padding: 1rem 0.5rem;
+
+  &:hover {
+    text-decoration: none;
+  }
+
+  .fwaah-title {
+    font-size: 1.9rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    color: #ffffff;
+  }
+
+  .fwaah-tagline {
+    font-size: 0.68rem;
+    letter-spacing: 0.05em;
+    color: #6c7293;
+    margin-top: 5px;
+    white-space: nowrap;
+  }
+}
+
+/* === fork banner (hosted fwaah.com only) === */
+.fwaah-fork-banner {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1040;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.1rem 1rem;
+  font-size: 1.35rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: #ffffff;
+  background: linear-gradient(90deg, #8f5fe8, #0090e7);
+  box-shadow: 0 -4px 18px rgba(0, 0, 0, 0.45);
+  text-decoration: none;
+
+  strong {
+    font-weight: 800;
+  }
+
+  i.mdi {
+    font-size: 1.5rem;
+  }
+
+  &:hover {
+    color: #ffffff;
+    text-decoration: none;
+    filter: brightness(1.12);
+  }
+}
+
+// keep the footer reachable when the banner is up
+body:has(.fwaah-fork-banner) .main-panel {
+  padding-bottom: 80px;
+}
