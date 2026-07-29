@@ -48,6 +48,17 @@ function detectHosted() {
 
 export const HOSTED = detectHosted();
 
+// Human label for the active RPC — never exposes a LAN IP or an API key path.
+export const RPC_LABEL = (() => {
+  if (RPC_URL.startsWith('/api/')) return 'shared RPC · edge cached';
+  if (RPC_URL === '/rpc') return 'local node';
+  try {
+    return new URL(RPC_URL, 'http://x').hostname || 'custom RPC';
+  } catch (_) {
+    return 'custom RPC';
+  }
+})();
+
 // poll cadence per surface, ms
 export const POLL = HOSTED
   ? { node: 12000, ticker: 24000, stats: 60000, logs: 300000, highValue: 300000, account: 30000 }

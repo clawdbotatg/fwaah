@@ -365,6 +365,13 @@
     color: #ffffff;
   }
 
+  .fwaah-house {
+    width: 44px;
+    height: 44px;
+    object-fit: contain;
+    margin-right: 0.5rem;
+  }
+
   .fwaah-tagline {
     font-size: 0.68rem;
     letter-spacing: 0.05em;
@@ -384,21 +391,22 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 1.1rem 1rem;
-  font-size: 1.35rem;
+  padding: 1.6rem 1rem;
+  font-size: 1.7rem;
   font-weight: 600;
   letter-spacing: 0.02em;
   color: #ffffff;
   background: linear-gradient(90deg, #8f5fe8, #0090e7);
   box-shadow: 0 -4px 18px rgba(0, 0, 0, 0.45);
   text-decoration: none;
+  cursor: pointer;
 
   strong {
     font-weight: 800;
   }
 
   i.mdi {
-    font-size: 1.5rem;
+    font-size: 1.9rem;
   }
 
   &:hover {
@@ -411,4 +419,10 @@
 // keep the footer reachable when the banner is up
 body:has(.fwaah-fork-banner) .main-panel {
   padding-bottom: 80px;
+}
+
+.fwaah-house-mini {
+  width: 40px;
+  height: 40px;
+  object-fit: contain;
 }

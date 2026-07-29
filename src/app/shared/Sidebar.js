@@ -8,11 +8,14 @@ class Sidebar extends Component {
       <nav className="sidebar sidebar-offcanvas" id="sidebar">
         <div className="sidebar-brand-wrapper d-none d-lg-flex align-items-center justify-content-center fixed-top">
           <Link className="sidebar-brand brand-logo fwaah-brand" to="/dashboard">
-            <span className="fwaah-title">FWAAH<span className="text-primary">!</span></span>
+            <span className="d-flex align-items-center">
+              <img className="fwaah-house" src={require('../../assets/images/fwaah-house.png')} alt="" />
+              <span className="fwaah-title">FWAAH<span className="text-primary">!</span></span>
+            </span>
             <span className="fwaah-tagline">Fake World Assets at home</span>
           </Link>
           <Link className="sidebar-brand brand-logo-mini" to="/dashboard">
-            <span className="h5 mb-0 font-weight-bold text-white">F!</span>
+            <img className="fwaah-house-mini" src={require('../../assets/images/fwaah-house.png')} alt="FWAAH!" />
           </Link>
         </div>
         <ul className="nav">
