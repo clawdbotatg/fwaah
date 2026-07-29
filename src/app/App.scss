@@ -353,35 +353,45 @@
   }
 }
 
-.fwaah-brand {
+// scoped under the theme's own selector so these win over
+// `.sidebar .sidebar-brand-wrapper .sidebar-brand` (line-height 48px, img squashed to 28px)
+.sidebar .sidebar-brand-wrapper .sidebar-brand.fwaah-brand {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
+  flex-direction: row;
+  align-items: center;
   justify-content: center;
   line-height: 1;
-  padding: 1rem 0.5rem;
+  padding: 0;
 
   &:hover {
     text-decoration: none;
+  }
+
+  .fwaah-brand-text {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
   }
 
   .fwaah-title {
     font-size: 1.9rem;
     font-weight: 700;
     letter-spacing: 0.02em;
+    line-height: 1;
     color: #ffffff;
   }
 
-  .fwaah-house {
+  img.fwaah-house {
     width: 44px;
     height: 44px;
     object-fit: contain;
-    margin-right: 0.5rem;
+    margin: 0 0.5rem 0 0;
   }
 
   .fwaah-tagline {
     font-size: 0.68rem;
     letter-spacing: 0.05em;
+    line-height: 1;
     color: #6c7293;
     margin-top: 5px;
     white-space: nowrap;
