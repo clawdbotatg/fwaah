@@ -10,6 +10,9 @@ admin theme, modernized to react-scripts 5 + dart-sass.
 
 ## Run
 
+Needs [Node.js](https://nodejs.org) 18+ and an Ethereum mainnet RPC — your own
+node, or a free [Alchemy](https://dashboard.alchemy.com) endpoint.
+
 ```
 npm install
 cp .env.example .env   # then set NODE_RPC_URL to your node
@@ -91,10 +94,14 @@ on every refresh — safe to close and reopen anytime.
 
 ## Dashboard
 
-- **Node status bar** — block/age/sync/peers/base fee, 2s poll.
+- **Node status bar** — your node's host + block/age/sync/peers/base fee, 2s
+  poll (the host comes from the dev server's `/rpc-target`; the hosted site
+  never shows anyone's LAN address).
 - **Live pulls** — three rows of tiles (6s poll): NFT art, winner
   (ENS via your node + blockies, scaffold-eth style `<FwaAddress/>`), value, age.
 - **High value** — biggest wins of the last 6h, sorted by backing, 150px art.
+- **Deposits** — newest NFTs listed into the pool over the last 24h, with art,
+  backing and depositor.
 - **Stats/charts** — pool balance, fee, listings, sequencer backlog; 24h
   acquisitions + fee volume; outcome mix; protocol health (tree invariant);
   decoded activity feed.
