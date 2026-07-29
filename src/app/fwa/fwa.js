@@ -358,19 +358,53 @@ async function flushEnsQueue() {
   });
 }
 
+// Proxy an http(s) URL through /api/meta (Vercel fn in prod, setupProxy in
+// dev) — several big collections' metadata hosts (artblocks, milady,
+// veefriends, opepen) send no CORS headers, so direct browser fetches die.
+const metaProxyUrl = (url) => '/api/meta?u=' + encodeURIComponent(url);
+
+// hosts whose direct fetch already failed once — go straight to the proxy
+const corsBlockedHosts = new Set();
+const urlHost = (url) => { try { return new URL(url).host; } catch (_) { return null; } };
+
+// fetch a metadata URL; returns parsed JSON, or { __image: url } if the URL
+// turned out to be the image itself (some tokenURIs point straight at art).
+async function fetchMeta(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const ct = res.headers.get('content-type') || '';
+  if (/^image\//i.test(ct)) return { __image: url };
+  return res.json();
+}
+
 // Best-effort: tokenURI string -> image URL from the metadata JSON.
 export async function fetchTokenImage(uri) {
   const url = resolveTokenUrl(uri);
   if (!url) return null;
-  try {
-    const res = await fetch(url);
-    if (!res.ok) return null;
-    const meta = await res.json();
-    const img = meta.image || meta.image_url || meta.imageUrl || (meta.properties && meta.properties.image) || null;
-    return resolveTokenUrl(typeof img === 'string' ? img : null);
-  } catch (_) {
-    return null;
+  let meta = null;
+  const host = url.startsWith('data:') ? null : urlHost(url);
+  if (host && corsBlockedHosts.has(host)) {
+    try { meta = await fetchMeta(metaProxyUrl(url)); } catch (_) { return null; }
+  } else {
+    try {
+      meta = await fetchMeta(url);
+    } catch (_) {
+      if (!host) return null;
+      try { meta = await fetchMeta(metaProxyUrl(url)); } catch (_2) { return null; }
+      corsBlockedHosts.add(host);
+    }
   }
+  if (meta.__image) return meta.__image;
+  let img = meta.image || meta.image_url || meta.imageUrl || (meta.properties && meta.properties.image) || null;
+  img = resolveTokenUrl(typeof img === 'string' ? img : null);
+  if (!img && typeof meta.image_data === 'string' && meta.image_data.trim().startsWith('<svg')) {
+    img = 'data:image/svg+xml,' + encodeURIComponent(meta.image_data);
+  }
+  // http:// art on an https page is blocked as mixed content — proxy it
+  if (img && img.startsWith('http://') && typeof window !== 'undefined' && window.location.protocol === 'https:') {
+    img = metaProxyUrl(img);
+  }
+  return img;
 }
 
 /* === listing art: listingId -> { img, collection, tokenId }, cached === */
@@ -402,7 +436,9 @@ export async function fetchListingArt(listingIds) {
   await Promise.all(withToken.map(async (w, i) => {
     const img = await fetchTokenImage(decodeString(uriRes[i]));
     const entry = { img, collection: w.collection, tokenId: w.tokenId.toString() };
-    listingArtCache[w.id] = entry;
+    // only cache successes — a transient fetch failure shouldn't pin the
+    // placeholder forever; the next poll retries
+    if (img) listingArtCache[w.id] = entry;
     out[w.id] = entry;
   }));
   return out;
