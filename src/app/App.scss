@@ -248,6 +248,13 @@
 
 }
 
+/* === recent deposits row (reuses hv-card layout, recolored) === */
+.dep-card {
+  .dep-title {
+    color: #0090e7 !important;
+  }
+}
+
 /* === node status bar === */
 .node-status-card {
   .node-stat {

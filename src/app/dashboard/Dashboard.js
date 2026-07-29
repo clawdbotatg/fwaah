@@ -2,6 +2,7 @@ import React, { Component } from 'react';
 import { Bar, Doughnut } from 'react-chartjs-2';
 import PullTicker from './PullTicker';
 import HighValuePulls from './HighValuePulls';
+import RecentDeposits from './RecentDeposits';
 import NodeStatusBar from './NodeStatusBar';
 import PullPanel from './PullPanel';
 import FwaAddress from '../fwa/FwaAddress';
@@ -216,6 +217,7 @@ export class Dashboard extends Component {
         <PullPanel />
         <PullTicker />
         <HighValuePulls />
+        <RecentDeposits />
         <div className="page-header">
           <h3 className="page-title">
             <span className="page-title-icon bg-gradient-primary text-white mr-2">
