@@ -58,6 +58,22 @@ visitor produces byte-identical URLs — and the function's
 TTL window (6s blocks, 12s contract reads, 60s logs). N visitors ≈ 1 visitor
 of upstream load. Receipt polling and writes never cache. The function only
 allows a whitelist of read methods, so it can't be abused as a tx relay.
+Big cacheable batches (the ticker's ~60 art lookups, a page-load ENS flush)
+are split client-side into fixed 20-call groups so each stays on the shared
+GET path instead of falling back to an uncached per-visitor POST.
+
+## NFT metadata proxy (`api/meta.js`)
+
+Several big collections' metadata servers (Art Blocks, Milady, VeeFriends,
+Opepen) send no CORS headers, so the browser can't fetch their tokenURI JSON
+directly. The client tries the direct fetch first and falls back to
+`GET /api/meta?u=<url>`, which fetches server-side and replays the response
+with CORS headers — edge-cached for a day, so all visitors share one upstream
+hit per token. A per-host memo skips the doomed direct attempt after the
+first failure. The function refuses private/internal hosts, caps responses at
+5MB, and rejects cross-site referrers so other sites can't hotlink through
+it. `npm start` serves a dev twin of the route from `setupProxy.js`, so forks
+get working art without Vercel.
 
 ## Deploying to fwaah.com
 
@@ -108,3 +124,7 @@ on every refresh — safe to close and reopen anytime.
 
 Note: the node caps `eth_getLogs` at 20k results per call, so wide log windows
 are fetched in range chunks (see `Dashboard.refreshLogs`).
+
+## License
+
+MIT — see [LICENSE](LICENSE). Fork away.

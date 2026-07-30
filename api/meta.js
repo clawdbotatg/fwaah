@@ -21,7 +21,29 @@ function blockedHost(hostname) {
   return false;
 }
 
+// Referer/Origin hostnames allowed to use the proxy — our own pages only.
+function allowedReferrer(ref) {
+  try {
+    const h = new URL(ref).hostname.toLowerCase();
+    return h === 'fwaah.com' || h.endsWith('.fwaah.com')
+      || h.endsWith('.vercel.app') // preview deploys
+      || h === 'localhost' || h === '127.0.0.1';
+  } catch (e) {
+    return false;
+  }
+}
+
 module.exports = async (req, res) => {
+  // Block other websites from hotlinking through the proxy (bandwidth burn).
+  // Browsers on our pages send same-origin markers; a foreign page's fetch
+  // arrives with a cross-site marker or a foreign Referer. Bare clients with
+  // no headers pass — the edge cache and host checks bound that damage.
+  const ref = req.headers.referer || req.headers.origin;
+  if (req.headers['sec-fetch-site'] === 'cross-site' || (ref && !allowedReferrer(ref))) {
+    res.status(403).json({ error: 'forbidden' });
+    return;
+  }
+
   let url;
   try {
     url = new URL(String(req.query.u || ''));

@@ -188,50 +188,70 @@ async function rpcExec(calls, safe) {
   });
 
   if (misses.length) {
-    // Deterministic per-batch ids: every visitor running this same code
-    // produces a byte-identical request, so the edge proxy's GET URLs collide
-    // on purpose and all visitors share one cached upstream response.
-    const body = misses.map(([, call], j) => ({
-      jsonrpc: '2.0',
-      id: j + 1,
-      method: call[0],
-      params: call[1],
-    }));
-    const payload = JSON.stringify(body);
-
-    let res;
     const cacheable = misses.every(([, call]) => cacheTtl(call[0]) > 0);
-    if (RPC_URL.startsWith('/api/') && cacheable) {
-      const q = base64url(payload);
-      if (q.length < 7000) {
-        res = await fetch(RPC_URL + '?q=' + q);
-      }
-    }
-    if (!res) {
-      res = await fetch(RPC_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: payload,
-      });
-    }
-    if (!res.ok) throw new Error('RPC HTTP ' + res.status);
-    const json = await res.json();
-    const byId = {};
-    (Array.isArray(json) ? json : [json]).forEach((r) => { byId[r.id] = r; });
+    const useGet = RPC_URL.startsWith('/api/') && cacheable;
 
-    misses.forEach(([i, call, key], j) => {
-      const r = byId[j + 1];
-      if (!r || r.error) {
-        if (safe) {
-          results[i] = null;
-          return;
+    // Big cacheable batches (the ticker's 60 art lookups, a page-load ENS
+    // flush) split into fixed-size groups: each group's GET URL stays under
+    // the proxy's size guard, so it edge-caches and is shared across visitors
+    // instead of falling back to a per-visitor uncached POST. Deterministic
+    // grouping + per-group ids keep every visitor's URLs byte-identical. It
+    // also keeps every group under the proxy's 64-calls-per-batch cap.
+    const GET_CHUNK = 20;
+    const groups = [];
+    if (useGet && misses.length > GET_CHUNK) {
+      for (let i = 0; i < misses.length; i += GET_CHUNK) groups.push(misses.slice(i, i + GET_CHUNK));
+    } else {
+      groups.push(misses);
+    }
+
+    const runGroup = async (group) => {
+      const body = group.map(([, call], j) => ({
+        jsonrpc: '2.0',
+        id: j + 1,
+        method: call[0],
+        params: call[1],
+      }));
+      const payload = JSON.stringify(body);
+
+      let res;
+      if (useGet) {
+        const q = base64url(payload);
+        if (q.length < 7000) {
+          res = await fetch(RPC_URL + '?q=' + q);
         }
-        throw new Error((r && r.error && r.error.message) || 'RPC error');
       }
-      results[i] = r.result;
-      const ttl = cacheTtl(call[0]);
-      if (key && ttl) rpcCache.set(key, { expires: Date.now() + ttl, result: r.result });
-    });
+      if (!res) {
+        res = await fetch(RPC_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: payload,
+        });
+      }
+      if (!res.ok) throw new Error('RPC HTTP ' + res.status);
+      const json = await res.json();
+      const byId = {};
+      (Array.isArray(json) ? json : [json]).forEach((r) => { byId[r.id] = r; });
+
+      group.forEach(([i, call, key], j) => {
+        const r = byId[j + 1];
+        if (!r || r.error) {
+          if (safe) {
+            results[i] = null;
+            return;
+          }
+          throw new Error((r && r.error && r.error.message) || 'RPC error');
+        }
+        results[i] = r.result;
+        const ttl = cacheTtl(call[0]);
+        if (key && ttl) rpcCache.set(key, { expires: Date.now() + ttl, result: r.result });
+      });
+    };
+
+    await Promise.all(groups.map((g) => runGroup(g).catch((e) => {
+      if (!safe) throw e;
+      g.forEach(([i]) => { if (results[i] === undefined) results[i] = null; });
+    })));
     pruneRpcCache();
   }
 
