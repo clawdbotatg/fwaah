@@ -155,7 +155,9 @@ export class PullPanel extends Component {
         const art = await fetchListingArt(won.map((w) => w.listingId));
         if (!this.alive) return;
         this.setState((prev) => ({
-          won: prev.won.map((w) => (art[w.listingId] ? { ...w, img: art[w.listingId].img } : w)),
+          won: prev.won.map((w) => (art[w.listingId]
+            ? { ...w, img: art[w.listingId].img, collection: art[w.listingId].collection, tokenId: art[w.listingId].tokenId }
+            : w)),
         }));
       }
     } catch (e) {
@@ -281,13 +283,28 @@ export class PullPanel extends Component {
             <div className="mt-3">
               <p className="text-muted small mb-2">YOU WON — choose how to take it:</p>
               <div className="d-flex flex-wrap">
-                {won.map((w) => (
+                {won.map((w) => {
+                  // check the floor/offers before choosing keep vs ETH vs tokens
+                  const osUrl = w.collection
+                    ? 'https://opensea.io/assets/ethereum/' + w.collection + '/' + w.tokenId
+                    : null;
+                  return (
                   <div key={w.listingId} className="pull-panel-win mr-3 mb-2">
                     {w.img
-                      ? <img className="pull-ticker-art hv-art" src={w.img} alt="" />
+                      ? (osUrl
+                        ? <a href={osUrl} target="_blank" rel="noopener noreferrer"><img className="pull-ticker-art hv-art" src={w.img} alt="" /></a>
+                        : <img className="pull-ticker-art hv-art" src={w.img} alt="" />)
                       : <div className="pull-ticker-art hv-art pull-ticker-art-placeholder"><i className="mdi mdi-trophy text-warning"></i></div>}
                     <p className="small text-center mb-1 mt-1">
                       #{w.listingId} · backing <strong>{fmtEth(w.backing, 3)} ETH</strong>
+                      {osUrl && (
+                        <>
+                          {' · '}
+                          <a href={osUrl} target="_blank" rel="noopener noreferrer">
+                            OpenSea <i className="mdi mdi-open-in-new"></i>
+                          </a>
+                        </>
+                      )}
                     </p>
                     <button className="btn btn-sm btn-outline-primary btn-block mb-1" disabled={!!busy} onClick={() => this.keepNFT(w)}>
                       <i className="mdi mdi-image"></i> Keep the NFT
@@ -299,7 +316,8 @@ export class PullPanel extends Component {
                       <i className="mdi mdi-alpha-f-circle"></i> Take {w.tokenQuote !== null ? '~' + fmtEth(w.tokenQuote, 1) : '…'} FWA
                     </button>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}
