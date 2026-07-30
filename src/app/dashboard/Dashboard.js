@@ -5,6 +5,7 @@ import HighValuePulls from './HighValuePulls';
 import RecentDeposits from './RecentDeposits';
 import NodeStatusBar from './NodeStatusBar';
 import PullPanel from './PullPanel';
+import MyDeposits from './MyDeposits';
 import FwaAddress from '../fwa/FwaAddress';
 import {
   FWA_ADDRESS, ETHERSCAN, SELECTORS, TOPICS,
@@ -215,6 +216,7 @@ export class Dashboard extends Component {
       <div>
         <NodeStatusBar />
         <PullPanel />
+        <MyDeposits />
         <PullTicker />
         <HighValuePulls />
         <RecentDeposits />

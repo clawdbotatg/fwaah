@@ -103,6 +103,13 @@ The **Pull from the pool** panel uses your injected wallet (MetaMask etc.):
   backing), or **Take FWA tokens** (`acceptBidAsTokens`, minOut set 5% under a
   simulated quote).
 - Pull refunds (expiry/slippage/empty-pool) surface with a **withdraw** button.
+- In-flight pulls show a **progress bar** calibrated from measured history
+  (median ~2.4 min, 90% land inside 5 — see `PULL_*` in `PullPanel.js`).
+- **Your deposits** (wallet connected): your NFTs currently in the pool, with
+  art, backing and OpenSea links. Found via a depositor-filtered `NFTListed`
+  log walk — the newest day paints first, deepening to ~7d in the background
+  (2 RPC calls per poll after that; the per-item status sweep runs on the
+  slow cadence).
 
 The wallet signs everything; the app never touches keys. Reads and receipt
 watching go through your own node, and pending wins are rediscovered from logs

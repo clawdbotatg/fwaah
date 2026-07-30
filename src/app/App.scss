@@ -289,6 +289,26 @@
   }
 }
 
+/* === your deposits row (wallet-connected) === */
+.mine-card {
+  .mine-title {
+    color: #b966e7 !important;
+  }
+
+  .mine-eth {
+    color: #b966e7;
+  }
+}
+
+/* === waiting-pull progress bars in the pull panel === */
+.pull-progress {
+  max-width: 560px;
+
+  .progress {
+    background: #2a3038;
+  }
+}
+
 /* === node status bar === */
 .node-status-card {
   .node-stat {
