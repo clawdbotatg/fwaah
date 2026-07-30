@@ -475,6 +475,22 @@
   }
 }
 
+// collapsed (icon-only) sidebar: hide the full brand, show just the house.
+// Needs the .sidebar-icon-only prefix to out-rank the display:flex above,
+// which otherwise ties with the theme's `.brand-logo { display: none }`.
+@media (min-width: 992px) {
+  .sidebar-icon-only .sidebar .sidebar-brand-wrapper {
+    .sidebar-brand.fwaah-brand {
+      display: none;
+    }
+
+    .sidebar-brand.brand-logo-mini img.fwaah-house-mini {
+      width: 40px;
+      height: 40px;
+    }
+  }
+}
+
 /* === fork banner (hosted fwaah.com only) === */
 .fwaah-fork-banner {
   position: fixed;
