@@ -3,7 +3,7 @@ import {
   FWA_ADDRESS, ETHERSCAN, TOPICS,
   rpcBatch, toNum, word,
   fmtEth, fmtAge, topicAddr, topicNum,
-  fetchListingArt, POLL,
+  fetchListingArt, openSeaUrl, POLL,
 } from '../fwa/fwa';
 import FwaAddress from '../fwa/FwaAddress';
 
@@ -73,7 +73,9 @@ export class RecentDeposits extends Component {
       const art = await fetchListingArt(top.map((it) => it.listingId));
       if (!this.alive) return;
       this.setState((prev) => ({
-        items: prev.items.map((it) => (art[it.listingId] ? { ...it, img: art[it.listingId].img } : it)),
+        items: prev.items.map((it) => (art[it.listingId]
+          ? { ...it, img: art[it.listingId].img, collection: art[it.listingId].collection, tokenId: art[it.listingId].tokenId }
+          : it)),
       }));
     } catch (e) { /* retry on the next poll */ }
   }
@@ -90,27 +92,36 @@ export class RecentDeposits extends Component {
           <div className="pull-ticker-strip">
             {items.length === 0
               ? <span className="text-muted pl-3">scanning for deposits…</span>
-              : items.map((it) => (
-                <a
-                  key={it.key}
-                  className="pull-ticker-item hv-item"
-                  href={ETHERSCAN + '/tx/' + it.tx}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  title={'listing #' + it.listingId + ' deposited — backing ' + fmtEth(it.backing) + ' ETH'}
-                >
-                  {it.img
-                    ? <img className="pull-ticker-art hv-art" src={it.img} alt="" onError={(e) => { e.target.outerHTML = '<div class="pull-ticker-art hv-art pull-ticker-art-placeholder"><i class="mdi mdi-image text-info"></i></div>'; }} />
-                    : (
-                      <div className="pull-ticker-art hv-art pull-ticker-art-placeholder">
-                        <i className="mdi mdi-image text-info"></i>
-                      </div>
-                    )}
-                  <span className="hv-eth text-info">{fmtEth(it.backing, 3)} ETH</span>
-                  <FwaAddress address={it.depositor} size="xs" noLink />
-                  <span className="pull-ticker-age">{fmtAge(Math.max(0, (now - it.tsMs) / 1000))} ago</span>
-                </a>
-              ))}
+              : items.map((it) => {
+                const os = openSeaUrl(it.collection, it.tokenId);
+                return (
+                <div key={it.key} className="pull-tilewrap">
+                  <a
+                    className="pull-ticker-item hv-item"
+                    href={ETHERSCAN + '/tx/' + it.tx}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title={'listing #' + it.listingId + ' deposited — backing ' + fmtEth(it.backing) + ' ETH'}
+                  >
+                    {it.img
+                      ? <img className="pull-ticker-art hv-art" src={it.img} alt="" onError={(e) => { e.target.outerHTML = '<div class="pull-ticker-art hv-art pull-ticker-art-placeholder"><i class="mdi mdi-image text-info"></i></div>'; }} />
+                      : (
+                        <div className="pull-ticker-art hv-art pull-ticker-art-placeholder">
+                          <i className="mdi mdi-image text-info"></i>
+                        </div>
+                      )}
+                    <span className="hv-eth text-info">{fmtEth(it.backing, 3)} ETH</span>
+                    <FwaAddress address={it.depositor} size="xs" noLink />
+                    <span className="pull-ticker-age">{fmtAge(Math.max(0, (now - it.tsMs) / 1000))} ago</span>
+                  </a>
+                  {os && (
+                    <a className="os-badge" href={os} target="_blank" rel="noopener noreferrer" title="view on OpenSea">
+                      <i className="mdi mdi-ship-wheel"></i>
+                    </a>
+                  )}
+                </div>
+                );
+              })}
           </div>
         </div>
       </div>

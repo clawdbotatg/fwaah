@@ -427,6 +427,10 @@ export async function fetchTokenImage(uri) {
   return img;
 }
 
+export const openSeaUrl = (collection, tokenId) => (collection
+  ? 'https://opensea.io/assets/ethereum/' + collection + '/' + tokenId
+  : null);
+
 /* === listing art: listingId -> { img, collection, tokenId }, cached === */
 
 const listingArtCache = {}; // listingId -> { img, collection, tokenId }

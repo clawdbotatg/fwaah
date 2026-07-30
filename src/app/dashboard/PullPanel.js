@@ -3,7 +3,7 @@ import {
   FWA_ADDRESS, ETHERSCAN, SELECTORS, TOPICS,
   rpcBatch, rpcBatchSafe, ethCall, encodeData, addrTopic,
   toBig, toNum, word, wordAddr, topicNum,
-  fmtEth, fetchListingArt, POLL,
+  fmtEth, fetchListingArt, openSeaUrl, POLL,
 } from '../fwa/fwa';
 import { injected, connectWallet, onAccountsChanged, sendTx, waitForReceipt } from '../fwa/wallet';
 import FwaAddress from '../fwa/FwaAddress';
@@ -285,9 +285,7 @@ export class PullPanel extends Component {
               <div className="d-flex flex-wrap">
                 {won.map((w) => {
                   // check the floor/offers before choosing keep vs ETH vs tokens
-                  const osUrl = w.collection
-                    ? 'https://opensea.io/assets/ethereum/' + w.collection + '/' + w.tokenId
-                    : null;
+                  const osUrl = openSeaUrl(w.collection, w.tokenId);
                   return (
                   <div key={w.listingId} className="pull-panel-win mr-3 mb-2">
                     {w.img

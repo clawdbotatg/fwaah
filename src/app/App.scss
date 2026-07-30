@@ -182,6 +182,40 @@
 
 }
 
+// wrapper so the OpenSea badge can be its own link — anchors can't nest
+// inside the tile's etherscan anchor
+.pull-tilewrap {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+
+  .os-badge {
+    position: absolute;
+    // clear of the tile's 0.45rem right margin, sitting on the art corner
+    top: 8px;
+    right: calc(0.45rem + 6px);
+    width: 22px;
+    height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background: rgba(20, 24, 31, 0.85);
+    color: #2081e2; // OpenSea blue
+    font-size: 14px;
+    line-height: 1;
+    opacity: 0.75;
+    transition: opacity 0.15s, background 0.15s, color 0.15s;
+
+    &:hover {
+      opacity: 1;
+      background: #2081e2;
+      color: #ffffff;
+      text-decoration: none;
+    }
+  }
+}
+
 @keyframes pull-ticker-in {
   from {
     width: 0;

@@ -3,7 +3,7 @@ import {
   FWA_ADDRESS, ETHERSCAN, SELECTORS, TOPICS,
   rpcBatch, ethCall, toNum, word,
   fmtEth, fmtAge, topicAddr, topicNum,
-  fetchListingArt, POLL,
+  fetchListingArt, openSeaUrl, POLL,
 } from '../fwa/fwa';
 import FwaAddress from '../fwa/FwaAddress';
 
@@ -144,7 +144,7 @@ export class PullTicker extends Component {
       if (!this.alive) return;
       this.setState((prev) => ({
         items: prev.items.map((it) => (it.kind === 'win' && art[it.listingId]
-          ? { ...it, img: art[it.listingId].img }
+          ? { ...it, img: art[it.listingId].img, collection: art[it.listingId].collection, tokenId: art[it.listingId].tokenId }
           : it)),
       }));
     } catch (e) { /* art is decoration — never break the ticker over it */ }
@@ -153,28 +153,35 @@ export class PullTicker extends Component {
   renderItem(it) {
     const age = fmtAge(Math.max(0, (this.state.now - it.tsMs) / 1000));
     const isWin = it.kind === 'win';
+    const os = isWin ? openSeaUrl(it.collection, it.tokenId) : null;
     return (
-      <a
-        key={it.key}
-        className={'pull-ticker-item pull-ticker-item-' + it.kind}
-        href={ETHERSCAN + '/tx/' + it.tx}
-        target="_blank"
-        rel="noopener noreferrer"
-        title={isWin ? 'won listing #' + it.listingId + ' — backing ' + fmtEth(it.backing) + ' ETH' : 'acquisition refunded'}
-      >
-        {isWin && it.img
-          ? <img className="pull-ticker-art" src={it.img} alt="" onError={(e) => { e.target.outerHTML = '<div class="pull-ticker-art pull-ticker-art-placeholder"><i class="mdi mdi-trophy text-warning"></i></div>'; }} />
-          : (
-            <div className="pull-ticker-art pull-ticker-art-placeholder">
-              <i className={isWin ? 'mdi mdi-trophy text-warning' : 'mdi mdi-undo-variant text-danger'}></i>
-            </div>
-          )}
-        <FwaAddress address={it.purchaser} size="xs" noLink />
-        <span className={'pull-ticker-eth ' + (isWin ? 'text-success' : 'text-danger')}>
-          {isWin ? fmtEth(it.backing, 3) : '↩ ' + fmtEth(it.backing, 3)}
-        </span>
-        <span className="pull-ticker-age">{age}</span>
-      </a>
+      <div key={it.key} className="pull-tilewrap">
+        <a
+          className={'pull-ticker-item pull-ticker-item-' + it.kind}
+          href={ETHERSCAN + '/tx/' + it.tx}
+          target="_blank"
+          rel="noopener noreferrer"
+          title={isWin ? 'won listing #' + it.listingId + ' — backing ' + fmtEth(it.backing) + ' ETH' : 'acquisition refunded'}
+        >
+          {isWin && it.img
+            ? <img className="pull-ticker-art" src={it.img} alt="" onError={(e) => { e.target.outerHTML = '<div class="pull-ticker-art pull-ticker-art-placeholder"><i class="mdi mdi-trophy text-warning"></i></div>'; }} />
+            : (
+              <div className="pull-ticker-art pull-ticker-art-placeholder">
+                <i className={isWin ? 'mdi mdi-trophy text-warning' : 'mdi mdi-undo-variant text-danger'}></i>
+              </div>
+            )}
+          <FwaAddress address={it.purchaser} size="xs" noLink />
+          <span className={'pull-ticker-eth ' + (isWin ? 'text-success' : 'text-danger')}>
+            {isWin ? fmtEth(it.backing, 3) : '↩ ' + fmtEth(it.backing, 3)}
+          </span>
+          <span className="pull-ticker-age">{age}</span>
+        </a>
+        {os && (
+          <a className="os-badge" href={os} target="_blank" rel="noopener noreferrer" title="view on OpenSea">
+            <i className="mdi mdi-ship-wheel"></i>
+          </a>
+        )}
+      </div>
     );
   }
 
