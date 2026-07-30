@@ -329,7 +329,30 @@
 /* === pull panel === */
 .pull-panel {
   .pull-panel-win {
-    width: 158px;
+    width: 300px;
+    max-width: 100%;
+
+    // the ticker/hv art sizes are scoped to their own tiles, so without this
+    // the won NFT renders at natural size (full-res collection art)
+    .pull-ticker-art {
+      width: 300px;
+      height: 300px;
+      max-width: 100%;
+      object-fit: cover;
+      border-radius: 6px;
+      background: #191c24;
+    }
+
+    .pull-ticker-art-placeholder {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+
+      i.mdi {
+        font-size: 3rem;
+        opacity: 0.6;
+      }
+    }
 
     .btn-block {
       font-size: 0.7rem;
