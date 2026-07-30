@@ -1,5 +1,7 @@
 # FWAAH!
 
+<img width="1726" height="1136" alt="image" src="https://github.com/user-attachments/assets/142d0d09-1931-42ec-88ab-c620ec623582" />
+
 *Fake World Assets at home* (fwaah.com) — a self-hosted FWA frontend + live dashboard that runs
 entirely against **your own node** (or your own Alchemy endpoint), so you can
 watch the pool and play even if the official website goes down.
