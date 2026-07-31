@@ -9,8 +9,9 @@ class AppRoutes extends Component {
     return (
       <Suspense fallback={<Spinner />}>
         <Switch>
-          <Route exact path="/dashboard" component={Dashboard} />
-          <Redirect to="/dashboard" />
+          <Route exact path="/" component={Dashboard} />
+          {/* old links keep working */}
+          <Redirect to="/" />
         </Switch>
       </Suspense>
     );

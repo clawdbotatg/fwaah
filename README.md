@@ -89,8 +89,8 @@ vercel deploy            # builds the CRA app + the api/rpc function
 vercel env add RPC_UPSTREAM   # your Alchemy URL, server-side only
 ```
 
-`vercel.json` carries the SPA rewrite (excluding `/api/*`) so `/dashboard`
-deep-links work. On fwaah.com the site shows the big
+`vercel.json` carries the SPA rewrite (excluding `/api/*`) so deep links
+work. The dashboard lives at `/` (old `/dashboard` links redirect). On fwaah.com the site shows the big
 **"fork this and get Fake World Assets At Home"** banner linking to GitHub
 (`src/app/shared/ForkBanner.js` — update `GITHUB_URL` to the real repo);
 preview it locally with `?forkbanner=1`.

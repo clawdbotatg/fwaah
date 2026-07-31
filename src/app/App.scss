@@ -428,6 +428,12 @@
   .sidebar-brand-wrapper {
     height: 100px;
   }
+
+  // the theme pads .nav by $navbar-height to clear the fixed brand — the
+  // 100px above already does that, so together they doubled the gap
+  .nav {
+    padding-top: 10px;
+  }
 }
 
 // scoped under the theme's own selector so these win over

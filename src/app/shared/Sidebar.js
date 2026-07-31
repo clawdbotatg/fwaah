@@ -7,14 +7,14 @@ class Sidebar extends Component {
     return (
       <nav className="sidebar sidebar-offcanvas" id="sidebar">
         <div className="sidebar-brand-wrapper d-none d-lg-flex align-items-center justify-content-center fixed-top">
-          <Link className="sidebar-brand brand-logo fwaah-brand" to="/dashboard">
+          <Link className="sidebar-brand brand-logo fwaah-brand" to="/">
             <img className="fwaah-house" src={require('../../assets/images/fwaah-house.png')} alt="" />
             <span className="fwaah-brand-text">
               <span className="fwaah-title">FWAAH<span className="text-primary">!</span></span>
               <span className="fwaah-tagline">Fake World Assets at home</span>
             </span>
           </Link>
-          <Link className="sidebar-brand brand-logo-mini" to="/dashboard">
+          <Link className="sidebar-brand brand-logo-mini" to="/">
             <img className="fwaah-house-mini" src={require('../../assets/images/fwaah-house.png')} alt="FWAAH!" />
           </Link>
         </div>
@@ -22,8 +22,8 @@ class Sidebar extends Component {
           <li className="nav-item nav-category">
             <span className="nav-link">Monitor</span>
           </li>
-          <li className={this.isPathActive('/dashboard') ? 'nav-item menu-items active' : 'nav-item menu-items'}>
-            <Link className="nav-link" to="/dashboard">
+          <li className={this.props.location.pathname === '/' ? 'nav-item menu-items active' : 'nav-item menu-items'}>
+            <Link className="nav-link" to="/">
               <span className="menu-icon"><i className="mdi mdi-speedometer"></i></span>
               <span className="menu-title">Dashboard</span>
             </Link>
