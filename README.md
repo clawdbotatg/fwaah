@@ -105,11 +105,12 @@ address + a disconnect ✕ replaces it once connected — disconnect is
 remembered across reloads). Any connect broadcasts to every panel, so
 deposits/earnings appear without a refresh.
 
-- **Deposit an NFT** — pick a whitelisted collection, paste the tokenId,
-  choose the ETH backing (min shown live). Ownership, whitelist and
-  approval are checked with cheap `eth_call`s first; then approve →
-  `listNFT` with the backing as `msg.value`. (Browsing your NFTs across 61
-  collections would need an indexer — manual entry doesn't.)
+- **Deposit an NFT** — pick a whitelisted collection and the panel shows
+  which of its tokens you hold as clickable chips (`balanceOf` +
+  `tokenOfOwnerByIndex`; collections without enumeration fall back to a
+  tokenId input), choose the ETH backing (min shown live). Ownership,
+  whitelist and approval are checked with cheap `eth_call`s first; then
+  approve → `listNFT` with the backing as `msg.value`.
 
 The **Pull from the pool** panel uses your injected wallet (MetaMask etc.):
 

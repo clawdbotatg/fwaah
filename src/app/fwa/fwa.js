@@ -163,6 +163,8 @@ export const SELECTORS = {
   getApproved: '0x081812fc',
   isApprovedForAll: '0xe985e9c5',
   approve: '0x095ea7b3', // approve(address,uint256)
+  balanceOf: '0x70a08231', // balanceOf(address)
+  tokenOfOwnerByIndex: '0x2f745c59', // ERC721Enumerable — not universal, degrade to manual entry
   // pull-panel reads
   quoteAcquisitionPrice: '0x987df4cd',
   settlementDiscountBps: '0xfb2dd096',

@@ -6,17 +6,20 @@ import {
 } from '../fwa/fwa';
 import { injected, onAccountsChanged, autoReconnectAllowed, sendTx, waitForReceipt } from '../fwa/wallet';
 
-// Deposit an NFT into the pool: pick a whitelisted collection, paste the
-// tokenId, choose the ETH backing. Ownership/whitelist/approval are verified
-// with three cheap eth_calls before any transaction; the flow is approve →
-// listNFT (backing rides as msg.value). Browsing "your NFTs" would need an
-// indexer — manual entry doesn't.
+const MAX_OWNED_SHOWN = 24;
+
+// Deposit an NFT into the pool: pick a whitelisted collection, pick one of
+// your tokens (balanceOf + tokenOfOwnerByIndex where the collection supports
+// enumeration; a manual tokenId input where it doesn't), choose the ETH
+// backing. Ownership/whitelist/approval are verified with cheap eth_calls
+// before any transaction; the flow is approve → listNFT (backing = msg.value).
 export class DepositPanel extends Component {
   state = {
     account: null,
     collection: WHITELIST_SNAPSHOT[0][0],
     tokenId: '',
     backing: '',
+    owned: null, // null = loading · {total, ids, enumerable}
     busy: null,
     error: null,
     done: null,
@@ -25,12 +28,18 @@ export class DepositPanel extends Component {
   componentDidMount() {
     this.alive = true;
     this.offAccounts = onAccountsChanged((accounts) => {
-      if (this.alive) this.setState({ account: accounts && accounts[0] ? accounts[0] : null, error: null, done: null });
+      if (!this.alive) return;
+      const account = accounts && accounts[0] ? accounts[0] : null;
+      this.setState({ account, error: null, done: null, owned: null, tokenId: '' });
+      if (account) this.fetchOwned(account, this.state.collection);
     });
     const eth = injected();
     if (eth && autoReconnectAllowed()) {
       eth.request({ method: 'eth_accounts' }).then((accounts) => {
-        if (this.alive && accounts && accounts[0]) this.setState({ account: accounts[0] });
+        if (this.alive && accounts && accounts[0] && !this.state.account) {
+          this.setState({ account: accounts[0] });
+          this.fetchOwned(accounts[0], this.state.collection);
+        }
       }).catch(() => { /* locked */ });
     }
   }
@@ -38,6 +47,33 @@ export class DepositPanel extends Component {
   componentWillUnmount() {
     this.alive = false;
     this.offAccounts();
+  }
+
+  pickCollection(collection) {
+    this.setState({ collection, tokenId: '', owned: null, error: null, done: null });
+    if (this.state.account) this.fetchOwned(this.state.account, collection);
+  }
+
+  // What do they hold here? balanceOf is universal; tokenOfOwnerByIndex is
+  // ERC721Enumerable — where a collection dropped it, keep the manual input.
+  async fetchOwned(account, collection) {
+    try {
+      const [balRaw] = await rpcBatchSafe([ethCallTo(collection, SELECTORS.balanceOf, [account])]);
+      if (!this.alive || this.state.account !== account || this.state.collection !== collection) return;
+      const total = balRaw ? Number(word(balRaw, 0)) : null;
+      if (total === null) { this.setState({ owned: { total: null, ids: [], enumerable: false } }); return; }
+      if (total === 0) { this.setState({ owned: { total: 0, ids: [], enumerable: true } }); return; }
+      const count = Math.min(total, MAX_OWNED_SHOWN);
+      const idRes = await rpcBatchSafe(Array.from({ length: count }, (_, i) => (
+        ethCallTo(collection, SELECTORS.tokenOfOwnerByIndex, [account, BigInt(i)])
+      )));
+      if (!this.alive || this.state.account !== account || this.state.collection !== collection) return;
+      const ids = idRes.filter((r) => r && r !== '0x').map((r) => word(r, 0).toString());
+      // nulls/empties mean no enumeration support — degrade to manual entry
+      this.setState({ owned: { total, ids, enumerable: ids.length > 0 } });
+    } catch (e) {
+      if (this.alive) this.setState({ owned: { total: null, ids: [], enumerable: false } });
+    }
   }
 
   async deposit() {
@@ -102,7 +138,7 @@ export class DepositPanel extends Component {
   }
 
   render() {
-    const { account, collection, tokenId, backing, busy, error, done } = this.state;
+    const { account, collection, tokenId, backing, owned, busy, error, done } = this.state;
     return (
       <div className="card deposit-card grid-margin">
         <div className="card-body py-3">
@@ -118,20 +154,22 @@ export class DepositPanel extends Component {
                   <select
                     className="form-control form-control-sm deposit-select"
                     value={collection}
-                    onChange={(e) => this.setState({ collection: e.target.value, error: null, done: null })}
+                    onChange={(e) => this.pickCollection(e.target.value)}
                   >
                     {WHITELIST_SNAPSHOT.map(([addr, name]) => <option key={addr} value={addr}>{name}</option>)}
                   </select>
                 </div>
-                <div className="form-group mb-0 mr-2">
-                  <label className="small text-muted mb-1">tokenId</label>
-                  <input
-                    className="form-control form-control-sm deposit-input"
-                    placeholder="e.g. 202"
-                    value={tokenId}
-                    onChange={(e) => this.setState({ tokenId: e.target.value, error: null, done: null })}
-                  />
-                </div>
+                {(!owned || !owned.enumerable || owned.total === null) && (
+                  <div className="form-group mb-0 mr-2">
+                    <label className="small text-muted mb-1">tokenId{owned && !owned.enumerable ? ' (collection hides holdings — enter it)' : ''}</label>
+                    <input
+                      className="form-control form-control-sm deposit-input"
+                      placeholder="e.g. 202"
+                      value={tokenId}
+                      onChange={(e) => this.setState({ tokenId: e.target.value, error: null, done: null })}
+                    />
+                  </div>
+                )}
                 <div className="form-group mb-0 mr-2">
                   <label className="small text-muted mb-1">backing (min {fmtEth(KNOB_SNAPSHOT.minBacking)} ETH)</label>
                   <input
@@ -147,11 +185,31 @@ export class DepositPanel extends Component {
                   disabled={!!busy || !tokenId.trim() || !backing.trim()}
                   onClick={() => this.deposit()}
                 >
-                  {busy ? busy + '…' : 'DEPOSIT'}
+                  {busy ? busy + '…' : 'DEPOSIT' + (tokenId.trim() ? ' #' + tokenId.trim() : '')}
                 </button>
               </React.Fragment>
             ) : <span className="text-muted small">connect your wallet (top right) to deposit</span>}
           </div>
+          {account && owned && owned.enumerable && owned.total === 0 && (
+            <div className="small text-muted mt-2">this wallet holds none of that collection — pick another</div>
+          )}
+          {account && owned && owned.enumerable && owned.ids.length > 0 && (
+            <div className="deposit-owned mt-2">
+              <span className="small text-muted mr-2">
+                you hold {owned.total}{owned.total > owned.ids.length ? ' (first ' + owned.ids.length + ' shown)' : ''} — pick one:
+              </span>
+              {owned.ids.map((id) => (
+                <button
+                  key={id}
+                  type="button"
+                  className={'deposit-chip' + (tokenId === id ? ' deposit-chip-active' : '')}
+                  onClick={() => this.setState({ tokenId: id, error: null, done: null })}
+                >
+                  #{id}
+                </button>
+              ))}
+            </div>
+          )}
           {error && <div className="small text-danger mt-2">{error}</div>}
           {done && <div className="small text-success mt-2">{done}</div>}
           {account && (
