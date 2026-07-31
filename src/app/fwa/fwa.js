@@ -136,6 +136,8 @@ export const SELECTORS = {
   topListingShareBps: '0x823e645a',
   topThresholdBps: '0x6a6e8c70',
   retainedToProtocol: '0x5b69ae6a',
+  selectionSlippageBps: '0x40ef7ee1',
+  selectionTimeoutBlocks: '0xdf881bd1',
   owner: '0x8da5cb5b',
   payoutAddress: '0x5b8d02d7',
   collectionWhitelisted: '0x666cd313', // collectionWhitelisted(address)
@@ -148,6 +150,13 @@ export const SELECTORS = {
   depositorRatePerSec: '0xd2b48fff',
   purchaserDailyPot: '0xfb894e65',
   totalSupply: '0x18160ddd', // on the FWA token
+  isBuying: '0x24f0aa72', // FWARewards — external FWA buys gate
+  tokenBuyAllowanceTotal: '0xb74d90cd', // FWARewards — ETH queued for FWA buybacks
+  // depositor earnings
+  feeCredit: '0x5c584c88', // feeCredit(address)
+  pendingFees: '0xa2b93478', // pendingFees(uint256)
+  withdrawEarnings: '0xb73c6ce9',
+  claimListingFees: '0xb840cf36', // claimListingFees(uint256[])
   // pull-panel reads
   quoteAcquisitionPrice: '0x987df4cd',
   settlementDiscountBps: '0xfb2dd096',

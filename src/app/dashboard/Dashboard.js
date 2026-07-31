@@ -148,6 +148,7 @@ export class Dashboard extends Component {
         'settlementDiscountBps', 'settlementWindow', 'finalizeWindow',
         'ownerAcquisitionFeeBps', 'ownerSettlementFeeBps',
         'topListingShareBps', 'topThresholdBps', 'retainedToProtocol',
+        'selectionSlippageBps', 'selectionTimeoutBlocks',
       ];
       const addrKeys = ['owner', 'payoutAddress', 'token', 'rewards', 'vrfService'];
       const calls = keys.map((k) => ethCall(SELECTORS[k]))
@@ -175,12 +176,14 @@ export class Dashboard extends Component {
       let emission = null;
       if (fwa.rewards && !/^0x0{40}$/.test(fwa.rewards)) {
         try {
-          const [startH, durH, rateH, potH, supplyH] = await rpcBatch([
+          const [startH, durH, rateH, potH, supplyH, buyingH, buyPoolH] = await rpcBatch([
             ethCallTo(fwa.rewards, SELECTORS.emissionStart),
             ethCallTo(fwa.rewards, SELECTORS.emissionDuration),
             ethCallTo(fwa.rewards, SELECTORS.depositorRatePerSec),
             ethCallTo(fwa.rewards, SELECTORS.purchaserDailyPot),
             ethCallTo(fwa.token, SELECTORS.totalSupply),
+            ethCallTo(fwa.rewards, SELECTORS.isBuying),
+            ethCallTo(fwa.rewards, SELECTORS.tokenBuyAllowanceTotal),
           ]);
           emission = {
             start: toNum(startH),
@@ -188,6 +191,8 @@ export class Dashboard extends Component {
             ratePerSec: toBig(rateH),
             dailyPot: toBig(potH),
             supply: toBig(supplyH),
+            buysOpen: toBig(buyingH) === 1n,
+            buybackPool: toBig(buyPoolH),
           };
         } catch (e) { /* module views are decoration */ }
       }
@@ -523,7 +528,7 @@ export class Dashboard extends Component {
           <div className="col-md-6 grid-margin stretch-card">
             <div className="card">
               <div className="card-body">
-                <h4 className="card-title"><i className="mdi mdi-crown text-warning"></i> Top Listing</h4>
+                <h4 className="card-title"><i className="mdi mdi-crown text-warning"></i> Top Listing — the Crown</h4>
                 {fwa && fwa.topListingId !== 0n ? (
                   <div className="d-flex">
                     {topArt && topListing && (
@@ -552,7 +557,7 @@ export class Dashboard extends Component {
                           </li>
                           {seizeBar !== null && (
                             <li className="text-muted">
-                              earns {(Number(fwa.topListingShareBps) / 100)}% of every pull · seize it with ≥ {fmtEth(seizeBar, 2)} ETH backing
+                              the crown tithes {(Number(fwa.topListingShareBps) / 100)}% of every pull · seize it with ≥ {fmtEth(seizeBar, 2)} ETH backing
                             </li>
                           )}
                         </ul>
@@ -607,51 +612,59 @@ export class Dashboard extends Component {
                 <div className="row small">
                   <div className="col-sm-6">
                     <ul className="list-unstyled mb-0">
-                      <li className="d-flex justify-content-between py-1">
+                      <li className="d-flex justify-content-between py-1" title="pulls cost the pool's expected value (harmonic mean of backings) plus this surcharge — the markup splits dynamically between depositor fees and the puller's FWA allowance">
                         <span className="text-muted">pull fee</span>
                         <span>EV {surchargePct !== null ? '+ ' + surchargePct + '%' : ''}</span>
                       </li>
-                      <li className="d-flex justify-content-between py-1">
+                      <li className="d-flex justify-content-between py-1" title="the protocol's share of every pull fee">
                         <span className="text-muted">owner cut of pulls</span>
                         <span>{fwa ? (Number(fwa.ownerAcquisitionFeeBps) / 100) + '%' : '—'}</span>
                       </li>
-                      <li className="d-flex justify-content-between py-1">
+                      <li className="d-flex justify-content-between py-1" title="what a winner receives accepting the depositor's standing bid instead of keeping the NFT">
                         <span className="text-muted">sell-back payout</span>
                         <span>{fwa ? (Number(fwa.settlementDiscountBps) / 100) + '% of backing' : '—'}</span>
                       </li>
-                      <li className="d-flex justify-content-between py-1">
+                      <li className="d-flex justify-content-between py-1" title="the protocol's slice when a winner keeps the NFT and the backing returns to the depositor">
                         <span className="text-muted">owner cut of sell-backs</span>
                         <span>{fwa ? (Number(fwa.ownerSettlementFeeBps) / 100) + '%' : '—'}</span>
                       </li>
-                      <li className="d-flex justify-content-between py-1">
+                      <li className="d-flex justify-content-between py-1" title="the unpaid remainder of the backing on a sell-back — ON means the protocol keeps it, OFF returns it to depositors">
                         <span className="text-muted">retained slice goes to</span>
                         <span>{fwa ? (fwa.retainedToProtocol !== 0n ? 'protocol' : 'depositor') : '—'}</span>
                       </li>
-                      <li className="d-flex justify-content-between py-1">
+                      <li className="d-flex justify-content-between py-1" title="floor ETH commitment per deposited NFT — raised from 0.01 at launch">
                         <span className="text-muted">min deposit backing</span>
                         <span>{fmtEth(knobs.minBacking)} ETH</span>
+                      </li>
+                      <li className="d-flex justify-content-between py-1" title="fee drift tolerance between a pull request and its settlement — drift beyond it converts the pull into a refund credit">
+                        <span className="text-muted">settlement slippage</span>
+                        <span>{fwa ? '±' + (Number(fwa.selectionSlippageBps) / 100) + '%' : '—'}</span>
                       </li>
                     </ul>
                   </div>
                   <div className="col-sm-6">
                     <ul className="list-unstyled mb-0">
-                      <li className="d-flex justify-content-between py-1">
-                        <span className="text-muted">top-pot share of pulls</span>
+                      <li className="d-flex justify-content-between py-1" title="the crown tithe: share of every pull fee that accrues to the top-backed listing's pot">
+                        <span className="text-muted">crown tithe (share of pulls)</span>
                         <span>{fwa ? (Number(fwa.topListingShareBps) / 100) + '%' : '—'}</span>
                       </li>
-                      <li className="d-flex justify-content-between py-1">
-                        <span className="text-muted">top takeover threshold</span>
+                      <li className="d-flex justify-content-between py-1" title="a challenger must exceed the crown's backing by this much to seize it">
+                        <span className="text-muted">crown takeover threshold</span>
                         <span>{fwa ? '+' + (Number(fwa.topThresholdBps) / 100) + '%' : '—'}</span>
                       </li>
-                      <li className="d-flex justify-content-between py-1">
+                      <li className="d-flex justify-content-between py-1" title="the winner's exclusive period to keep the NFT or take the sell-back before the depositor can reclaim">
                         <span className="text-muted">winner's exclusive window</span>
                         <span>{fwa ? Number(fwa.settlementWindow) / 3600 + 'h' : '—'}</span>
                       </li>
-                      <li className="d-flex justify-content-between py-1">
+                      <li className="d-flex justify-content-between py-1" title="after this, anyone may finalize an abandoned position">
                         <span className="text-muted">hard finalize deadline</span>
                         <span>{fwa ? Number(fwa.finalizeWindow) / 86400 + 'd' : '—'}</span>
                       </li>
-                      <li className="d-flex justify-content-between py-1">
+                      <li className="d-flex justify-content-between py-1" title="blocks the VRF randomness has to land before a pull request can expire into a refund">
+                        <span className="text-muted">selection timeout</span>
+                        <span>{fwa ? Number(fwa.selectionTimeoutBlocks) + ' blocks' : '—'}</span>
+                      </li>
+                      <li className="d-flex justify-content-between py-1" title="batch pulls per transaction cap">
                         <span className="text-muted">max pulls per tx</span>
                         <span>{knobs.maxPullsPerTx.toString()}</span>
                       </li>
@@ -747,6 +760,14 @@ export class Dashboard extends Component {
                       <li className="d-flex justify-content-between py-1">
                         <span className="text-muted">token supply</span>
                         <span>{fmtNum(Math.round(Number(emission.supply) / 1e18))} FWA</span>
+                      </li>
+                      <li className="d-flex justify-content-between py-1" title="whether external addresses may buy FWA on the pool yet — sells are always open">
+                        <span className="text-muted">external FWA buys</span>
+                        <span>{emission.buysOpen ? <span className="text-success">open</span> : <span className="text-warning">gated — sells only</span>}</span>
+                      </li>
+                      <li className="d-flex justify-content-between py-1" title="ETH waiting to be swapped into FWA buybacks (split between depositors, purchasers and burn)">
+                        <span className="text-muted">ETH queued for buybacks</span>
+                        <span>{fmtEth(emission.buybackPool)} ETH</span>
                       </li>
                     </ul>
                     <p className="text-muted small mb-0 mt-2">

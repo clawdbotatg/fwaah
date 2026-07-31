@@ -686,3 +686,15 @@ body:has(.fwaah-fork-banner) .main-panel {
 
 // icon-only sidebar has no room for the card
 .sidebar-icon-only .sidebar-episode { display: none !important; }
+
+// your-deposits earnings withdraw
+.mine-withdraw {
+  margin-top: 0.4rem;
+  font-size: 0.68rem;
+  padding: 2px 10px;
+}
+
+.mine-tx-error {
+  max-width: 180px;
+  font-size: 0.65rem;
+}

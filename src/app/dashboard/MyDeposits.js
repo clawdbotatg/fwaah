@@ -1,11 +1,11 @@
 import React, { Component } from 'react';
 import {
   FWA_ADDRESS, ETHERSCAN, SELECTORS, TOPICS,
-  rpcBatch, rpcBatchSafe, ethCall, addrTopic,
+  rpcBatch, rpcBatchSafe, ethCall, addrTopic, encodeData,
   toNum, word, wordAddr, topicNum,
   fmtEth, fmtAge, fetchListingArt, openSeaUrl, POLL,
 } from '../fwa/fwa';
-import { injected, onAccountsChanged } from '../fwa/wallet';
+import { injected, onAccountsChanged, sendTx, waitForReceipt } from '../fwa/wallet';
 
 const POLL_MS = POLL.account;
 const CHUNK_BLOCKS = 7200; // 24h per getLogs call — under node range/result caps
@@ -19,7 +19,7 @@ const LISTING_ACTIVE = 1n;
 // and each poll re-checks statuses (pulled NFTs drop out) + picks up new
 // deposits incrementally.
 export class MyDeposits extends Component {
-  state = { account: null, items: [], scanning: false, scannedBlocks: 0, now: Date.now() };
+  state = { account: null, items: [], scanning: false, scannedBlocks: 0, now: Date.now(), feeCredit: 0n, pendingTotal: 0n, txBusy: null, txError: null };
 
   componentDidMount() {
     this.alive = true;
@@ -106,20 +106,32 @@ export class MyDeposits extends Component {
         this.lastBlock = latest;
         await this.ingest(account, logs, latest);
       }
-      // drop items that left the pool (pulled / withdrawn / relisted away) —
-      // a batched eth_call per item, so only sweep every POLL.highValue
+      // drop items that left the pool (pulled / withdrawn / relisted away) and
+      // total up the fee earnings — batched eth_calls per item, so only sweep
+      // every POLL.highValue
       const { items } = this.state;
       if (items.length && Date.now() - (this.lastSweep || 0) > POLL.highValue) {
         this.lastSweep = Date.now();
-        const res = await rpcBatchSafe(items.map((it) => ethCall(SELECTORS.listings, [BigInt(it.listingId)])));
+        const res = await rpcBatchSafe([
+          ...items.map((it) => ethCall(SELECTORS.listings, [BigInt(it.listingId)])),
+          ...items.map((it) => ethCall(SELECTORS.pendingFees, [BigInt(it.listingId)])),
+          ethCall(SELECTORS.feeCredit, [account]),
+        ]);
         const gone = new Set();
+        let pendingTotal = 0n;
         items.forEach((it, i) => {
           const raw = res[i];
           if (!raw || word(raw, 10) !== LISTING_ACTIVE
             || wordAddr(raw, 1).toLowerCase() !== account.toLowerCase()) gone.add(it.listingId);
+          else if (res[items.length + i]) pendingTotal += word(res[items.length + i], 0);
         });
-        if (gone.size && this.alive && this.state.account === account) {
-          this.setState((prev) => ({ items: prev.items.filter((it) => !gone.has(it.listingId)) }));
+        const creditRaw = res[items.length * 2];
+        if (this.alive && this.state.account === account) {
+          this.setState((prev) => ({
+            items: gone.size ? prev.items.filter((it) => !gone.has(it.listingId)) : prev.items,
+            pendingTotal,
+            feeCredit: creditRaw ? word(creditRaw, 0) : prev.feeCredit,
+          }));
         }
       }
       // retry art for visible tiles that missed it (cache makes hits free)
@@ -134,6 +146,43 @@ export class MyDeposits extends Component {
         }));
       }
     } catch (e) { /* transient — next poll retries */ }
+  }
+
+  // Pull the fee earnings out: settle active listings' pending fees into the
+  // withdrawable credit first (one tx, id list capped for gas), then withdraw.
+  async withdrawEarnings() {
+    const { account, items, pendingTotal, feeCredit } = this.state;
+    if (!account || this.state.txBusy) return;
+    try {
+      if (pendingTotal > 0n && items.length) {
+        this.setState({ txBusy: 'claiming', txError: null });
+        const ids = items.slice(0, 120).map((it) => BigInt(it.listingId));
+        const hash = await sendTx({
+          from: account,
+          to: FWA_ADDRESS,
+          data: encodeData(SELECTORS.claimListingFees, [32n, BigInt(ids.length), ...ids]),
+        });
+        const receipt = await waitForReceipt(hash);
+        if (receipt.status === '0x0') throw new Error('claim reverted');
+      }
+      if (feeCredit > 0n || pendingTotal > 0n) {
+        this.setState({ txBusy: 'withdrawing', txError: null });
+        const hash = await sendTx({
+          from: account,
+          to: FWA_ADDRESS,
+          data: encodeData(SELECTORS.withdrawEarnings, []),
+        });
+        const receipt = await waitForReceipt(hash);
+        if (receipt.status === '0x0') throw new Error('withdraw reverted');
+      }
+      if (!this.alive) return;
+      this.lastSweep = 0; // re-total on the next poll
+      this.setState({ txBusy: null, feeCredit: 0n, pendingTotal: 0n });
+    } catch (e) {
+      if (!this.alive) return;
+      const msg = e && e.code === 4001 ? 'rejected in wallet' : String((e && e.message) || e);
+      this.setState({ txBusy: null, txError: msg });
+    }
   }
 
   // an <img> whose load errored (burst-choked CDN, transient net) drops its
@@ -189,10 +238,11 @@ export class MyDeposits extends Component {
   }
 
   render() {
-    const { account, items, scanning, scannedBlocks, now } = this.state;
+    const { account, items, scanning, scannedBlocks, now, feeCredit, pendingTotal, txBusy, txError } = this.state;
     if (!account || (!items.length && !scanning)) return null;
     const total = items.reduce((sum, it) => sum + it.backing, 0n);
     const days = Math.max(1, Math.round(scannedBlocks / 7200));
+    const earned = feeCredit + pendingTotal;
     return (
       <div className="card pull-ticker-card hv-card mine-card grid-margin">
         <div className="d-flex align-items-stretch">
@@ -202,6 +252,18 @@ export class MyDeposits extends Component {
               {items.length} in the pool · {fmtEth(total, 3)} ETH backing
               {scanning ? ' · scanning…' : ' · last ' + days + 'd'}
             </div>
+            {earned > 0n && (
+              <button
+                type="button"
+                className="btn btn-outline-warning mine-withdraw"
+                disabled={!!txBusy}
+                title="settles pending fees into your credit, then withdraws it (two wallet prompts)"
+                onClick={() => this.withdrawEarnings()}
+              >
+                {txBusy ? txBusy + '…' : 'withdraw ' + fmtEth(earned) + ' ETH'}
+              </button>
+            )}
+            {txError && <div className="small text-danger mine-tx-error">{txError}</div>}
           </div>
           <div className="pull-ticker-strip">
             {items.length === 0
