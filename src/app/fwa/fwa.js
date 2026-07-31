@@ -188,6 +188,22 @@ export const TOPICS = {
   OwnershipHandoverRequested: '0xdbf36a107da19e49527a7176a1babf963b4b0ff8cde35ee35d6cd8f1f9ac7e1d', // event topic hash (public) — gitleaks:allow
 };
 
+// owner/governance events — rare, shown in the feeds and scanned deep for the rules card
+export const ADMIN_TOPICS = [
+  TOPICS.ConfigSet, TOPICS.CollectionWhitelistSet,
+  TOPICS.OwnershipTransferred, TOPICS.OwnershipHandoverRequested,
+];
+
+// everything a human would call "activity" — shared by the live strip and the 24h feed
+export const FEED_TOPICS = [
+  TOPICS.AcquisitionRequested, TOPICS.NFTAllocated, TOPICS.NFTKept, TOPICS.NFTRelisted,
+  TOPICS.DepositorBidAccepted, TOPICS.DepositorBidAcceptedAsTokens,
+  TOPICS.AcquisitionExpired, TOPICS.AcquisitionRefundedNoListing, TOPICS.AcquisitionRefundedSlippage,
+  TOPICS.NFTListed, TOPICS.ListingStaged, TOPICS.ListingWithdrawn, TOPICS.BackingUpdated,
+  TOPICS.UnsettledFinalized, TOPICS.TopListingSet, TOPICS.TopListingSettled, TOPICS.FeesPaidOut,
+  ...ADMIN_TOPICS,
+];
+
 // FWAConfigKeys: the owner's tunable knobs, keyed by the uint in ConfigSet(key, value).
 // fmt renders the raw uint the way a human reads that knob.
 const fmtBps = (v) => { const p = Number(v) / 100; return (Number.isInteger(p) ? p : p.toFixed(2)) + '%'; };

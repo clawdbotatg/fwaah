@@ -12,6 +12,13 @@ const WINDOW_HOURS = 6;
 const WINDOW_BLOCKS = WINDOW_HOURS * 300; // 12s blocks
 const MAX_TILES = 16;
 
+// wins + the settlement choices that color each tile's outcome border
+const HV_TOPICS = [
+  TOPICS.NFTAllocated,
+  TOPICS.NFTKept, TOPICS.NFTRelisted, TOPICS.DepositorBidAccepted, TOPICS.DepositorBidAcceptedAsTokens,
+];
+const OUTCOME_LABEL = { kept: 'kept the NFT', eth: 'took the ETH', fwa: 'took FWA tokens' };
+
 // Biggest wins of the last few hours, sorted by backing value (not time).
 export class HighValuePulls extends Component {
   state = { items: [], now: Date.now() };
@@ -37,21 +44,28 @@ export class HighValuePulls extends Component {
       const start = Math.max(latest - WINDOW_BLOCKS, 0);
       const mid = start + Math.floor(WINDOW_BLOCKS / 2);
       const chunks = await rpcBatch([
-        ['eth_getLogs', [{ address: FWA_ADDRESS, fromBlock: '0x' + start.toString(16), toBlock: '0x' + mid.toString(16), topics: [[TOPICS.NFTAllocated]] }]],
-        ['eth_getLogs', [{ address: FWA_ADDRESS, fromBlock: '0x' + (mid + 1).toString(16), toBlock: '0x' + latest.toString(16), topics: [[TOPICS.NFTAllocated]] }]],
+        ['eth_getLogs', [{ address: FWA_ADDRESS, fromBlock: '0x' + start.toString(16), toBlock: '0x' + mid.toString(16), topics: [HV_TOPICS] }]],
+        ['eth_getLogs', [{ address: FWA_ADDRESS, fromBlock: '0x' + (mid + 1).toString(16), toBlock: '0x' + latest.toString(16), topics: [HV_TOPICS] }]],
       ]);
       const nowMs = Date.now();
-      const wins = [].concat(...chunks).map((log) => {
+      const wins = [];
+      const outcomes = {};
+      [].concat(...chunks).forEach((log) => {
+        const t0 = log.topics[0];
+        if (t0 === TOPICS.NFTKept || t0 === TOPICS.NFTRelisted) { outcomes[topicNum(log.topics[1])] = 'kept'; return; }
+        if (t0 === TOPICS.DepositorBidAccepted) { outcomes[topicNum(log.topics[1])] = 'eth'; return; }
+        if (t0 === TOPICS.DepositorBidAcceptedAsTokens) { outcomes[topicNum(log.topics[1])] = 'fwa'; return; }
         const bn = toNum(log.blockNumber);
-        return {
+        wins.push({
           key: log.transactionHash + log.logIndex,
           listingId: topicNum(log.topics[2]),
           purchaser: topicAddr(log.topics[3]),
           backing: word(log.data, 1),
           tx: log.transactionHash,
           tsMs: nowMs - (latest - bn) * 12000,
-        };
+        });
       });
+      wins.forEach((w) => { if (outcomes[w.listingId]) w.outcome = outcomes[w.listingId]; });
 
       wins.sort((a, b) => (a.backing === b.backing ? 0 : a.backing > b.backing ? -1 : 1));
       const top = wins.slice(0, MAX_TILES);
@@ -91,6 +105,7 @@ export class HighValuePulls extends Component {
               ? <span className="text-muted pl-3">scanning for big pulls…</span>
               : items.map((it) => {
                 const os = openSeaUrl(it.collection, it.tokenId);
+                const outcomeCls = ' outcome-' + (it.outcome || 'none');
                 return (
                 <div key={it.key} className="pull-tilewrap">
                   <a
@@ -98,12 +113,13 @@ export class HighValuePulls extends Component {
                     href={ETHERSCAN + '/tx/' + it.tx}
                     target="_blank"
                     rel="noopener noreferrer"
-                    title={'listing #' + it.listingId + ' — backing ' + fmtEth(it.backing) + ' ETH'}
+                    title={'listing #' + it.listingId + ' — backing ' + fmtEth(it.backing) + ' ETH'
+                      + (it.outcome ? ' — ' + OUTCOME_LABEL[it.outcome] : ' — undecided')}
                   >
                     {it.img
-                      ? <img className="pull-ticker-art hv-art" src={it.img} alt="" onError={() => this.artFailed(it.key)} />
+                      ? <img className={'pull-ticker-art hv-art' + outcomeCls} src={it.img} alt="" onError={() => this.artFailed(it.key)} />
                       : (
-                        <div className="pull-ticker-art hv-art pull-ticker-art-placeholder">
+                        <div className={'pull-ticker-art hv-art pull-ticker-art-placeholder' + outcomeCls}>
                           <i className="mdi mdi-trophy text-warning"></i>
                         </div>
                       )}

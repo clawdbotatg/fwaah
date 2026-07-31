@@ -550,3 +550,103 @@ body:has(.fwaah-fork-banner) .main-panel {
   overflow-y: auto;
   padding-right: 0.5rem;
 }
+
+// "happening now" live feed
+.live-feed-title {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  color: #00d25b;
+}
+
+.live-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #00d25b;
+  margin-right: 6px;
+  animation: livePulse 1.6s ease-in-out infinite;
+}
+
+@keyframes livePulse {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(0, 210, 91, 0.5); }
+  50% { opacity: 0.45; box-shadow: 0 0 0 4px rgba(0, 210, 91, 0); }
+}
+
+.live-feed-more {
+  font-size: 0.75rem;
+}
+
+.live-feed-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 2px 0;
+  font-size: 0.8rem;
+  animation: feedIn 0.35s ease-out;
+
+  .badge { flex-shrink: 0; min-width: 86px; text-align: center; }
+}
+
+.live-feed-parts {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.live-feed-age {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-size: 0.72rem;
+}
+
+@keyframes feedIn {
+  from { opacity: 0; transform: translateY(-7px); }
+  to { opacity: 1; transform: none; }
+}
+
+// outcome borders on win tiles: the puller's decision at a glance
+.outcome-none { border: 2px solid rgba(255, 255, 255, 0.22); }
+.outcome-kept { border: 2px solid #fc424a; }
+.outcome-eth { border: 2px solid #00d25b; }
+.outcome-fwa { border: 2px solid #ff2ec4; }
+
+.outcome-legend {
+  font-size: 0.62rem;
+  line-height: 1.6;
+  white-space: nowrap;
+
+  .outcome-chip {
+    display: inline-block;
+    width: 9px;
+    height: 9px;
+    border-radius: 3px;
+    margin: 0 3px 0 7px;
+    vertical-align: -1px;
+
+    &:first-child { margin-left: 0; }
+  }
+}
+
+// builder credit in the contracts & keys card
+.built-by {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.78rem;
+  color: #6c7293;
+
+  &:hover { color: #ffffff; text-decoration: none; }
+}
+
+.built-by-claw {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+  image-rendering: pixelated;
+}

@@ -127,8 +127,13 @@ on every refresh — safe to close and reopen anytime.
 - **Node status bar** — your node's host + block/age/sync/peers/base fee, 2s
   poll (the host comes from the dev server's `/rpc-target`; the hosted site
   never shows anyone's LAN address).
+- **Happening now** — a chat-style strip of the last few blocks of protocol
+  events pinned to the top (new lines slide in each poll), with a button that
+  jumps to the full 24h activity table.
 - **Live pulls** — three rows of tiles (6s poll): NFT art, winner
-  (ENS via your node + blockies, scaffold-eth style `<FwaAddress/>`), value, age.
+  (ENS via your node + blockies, scaffold-eth style `<FwaAddress/>`), value,
+  age. Each win tile's border shows the puller's decision: grey = undecided,
+  red = kept the NFT, green = took the ETH, pink = took FWA tokens.
 - **High value** — biggest wins of the last 6h, sorted by backing, 150px art.
 - **Deposits** — newest NFTs listed into the pool over the last 24h, with art,
   backing and depositor.

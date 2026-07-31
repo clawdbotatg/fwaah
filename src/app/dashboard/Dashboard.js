@@ -6,9 +6,11 @@ import RecentDeposits from './RecentDeposits';
 import NodeStatusBar from './NodeStatusBar';
 import PullPanel from './PullPanel';
 import MyDeposits from './MyDeposits';
+import LiveFeed from './LiveFeed';
 import FwaAddress from '../fwa/FwaAddress';
+import leftClaw from '../../assets/images/leftclaw.webp';
 import {
-  FWA_ADDRESS, ETHERSCAN, SELECTORS, TOPICS,
+  FWA_ADDRESS, ETHERSCAN, SELECTORS, TOPICS, FEED_TOPICS, ADMIN_TOPICS,
   rpcBatch, ethCall, ethCallTo, toBig, toNum, word, wordAddr, topicNum,
   fmtEth, fmtNum, fmtAge, shortAddr, describeLog, openSeaUrl, abiNinjaUrl,
   fetchListingArt, POLL,
@@ -18,12 +20,6 @@ const STATS_INTERVAL_MS = POLL.stats;
 const LOGS_INTERVAL_MS = POLL.logs;
 const DAY_BLOCKS = 7200; // ~24h of 12s blocks
 
-// owner/governance events — rare, folded into the feed AND scanned 7d deep
-// so the rules card can show recent knob turns
-const ADMIN_TOPICS = [
-  TOPICS.ConfigSet, TOPICS.CollectionWhitelistSet,
-  TOPICS.OwnershipTransferred, TOPICS.OwnershipHandoverRequested,
-];
 const ADMIN_SCAN_BLOCKS = 50400; // ~7d
 const ADMIN_CHUNK = 7200;
 
@@ -107,14 +103,6 @@ const WHITELIST_SNAPSHOT = [
   ['0x470879abd61fdca91436fe27ed87db2c8650f3e7', 'Locked FWA Token Packs'],
 ];
 
-const FEED_TOPICS = [
-  TOPICS.AcquisitionRequested, TOPICS.NFTAllocated, TOPICS.NFTKept, TOPICS.NFTRelisted,
-  TOPICS.DepositorBidAccepted, TOPICS.DepositorBidAcceptedAsTokens,
-  TOPICS.AcquisitionExpired, TOPICS.AcquisitionRefundedNoListing, TOPICS.AcquisitionRefundedSlippage,
-  TOPICS.NFTListed, TOPICS.ListingStaged, TOPICS.ListingWithdrawn, TOPICS.BackingUpdated,
-  TOPICS.UnsettledFinalized, TOPICS.TopListingSet, TOPICS.TopListingSettled, TOPICS.FeesPaidOut,
-  ...ADMIN_TOPICS,
-];
 
 const chartFont = '#6c7293';
 const gridColor = 'rgba(255,255,255,0.06)';
@@ -420,6 +408,7 @@ export class Dashboard extends Component {
     return (
       <div>
         <NodeStatusBar />
+        <LiveFeed />
         <PullPanel />
         <MyDeposits />
         <PullTicker />
@@ -806,13 +795,20 @@ export class Dashboard extends Component {
                 <p className="text-muted small mb-0 mt-2">
                   one EOA owner — no timelock or multisig; every knob on this page is theirs to turn
                 </p>
+                <a
+                  className="built-by mt-3"
+                  href="https://x.com/clawdbotatg"
+                  target="_blank" rel="noopener noreferrer"
+                >
+                  <img src={leftClaw} alt="" className="built-by-claw" /> Built by ClawdBotATG
+                </a>
               </div>
             </div>
           </div>
         </div>
 
         {/* activity feed */}
-        <div className="row">
+        <div className="row" id="recent-activity">
           <div className="col-12 grid-margin stretch-card">
             <div className="card">
               <div className="card-body">

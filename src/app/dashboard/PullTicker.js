@@ -14,7 +14,13 @@ const MAX_ITEMS = 60;      // three wrapped rows worth of tiles
 const TICKER_TOPICS = [
   TOPICS.AcquisitionRequested, TOPICS.NFTAllocated,
   TOPICS.AcquisitionExpired, TOPICS.AcquisitionRefundedNoListing, TOPICS.AcquisitionRefundedSlippage,
+  // settlement choices — they arrive after the win, so the incremental poll
+  // catches them and paints the tile's outcome border
+  TOPICS.NFTKept, TOPICS.NFTRelisted, TOPICS.DepositorBidAccepted, TOPICS.DepositorBidAcceptedAsTokens,
 ];
+
+// listingId -> outcome, from the settlement events (kept = red, eth = green, fwa = pink)
+const OUTCOME_LABEL = { kept: 'kept the NFT', eth: 'took the ETH', fwa: 'took FWA tokens' };
 
 // Live strip of pool pulls: newest on the far left, sliding right as they age.
 export class PullTicker extends Component {
@@ -78,12 +84,23 @@ export class PullTicker extends Component {
     if (!this.alive) return;
     const nowMs = Date.now();
     const fresh = [];
+    const outcomes = {};
 
     logs.forEach((log) => {
       const bn = toNum(log.blockNumber);
       const tsMs = nowMs - (latest - bn) * 12000; // approx: 12s blocks
       const t = log.topics;
       switch (t[0]) {
+        case TOPICS.NFTKept:
+        case TOPICS.NFTRelisted: // relist = they took the NFT and re-deposited it
+          outcomes[topicNum(t[1])] = 'kept';
+          return;
+        case TOPICS.DepositorBidAccepted:
+          outcomes[topicNum(t[1])] = 'eth';
+          return;
+        case TOPICS.DepositorBidAcceptedAsTokens:
+          outcomes[topicNum(t[1])] = 'fwa';
+          return;
         case TOPICS.AcquisitionRequested:
           this.feeByRequest[t[1]] = word(log.data, 0);
           this.rollTimes.push(tsMs);
@@ -128,7 +145,9 @@ export class PullTicker extends Component {
     // newest first: fresh logs arrive oldest→newest, so reverse before prepending
     fresh.reverse();
     this.setState((prev) => ({
-      items: fresh.concat(prev.items).slice(0, MAX_ITEMS),
+      items: fresh.concat(prev.items)
+        .map((it) => (it.kind === 'win' && outcomes[it.listingId] ? { ...it, outcome: outcomes[it.listingId] } : it))
+        .slice(0, MAX_ITEMS),
       pending,
       rollsPerHour: this.rollTimes.length,
     }));
@@ -164,6 +183,8 @@ export class PullTicker extends Component {
     const age = fmtAge(Math.max(0, (this.state.now - it.tsMs) / 1000));
     const isWin = it.kind === 'win';
     const os = isWin ? openSeaUrl(it.collection, it.tokenId) : null;
+    // border color = the puller's decision; grey until they choose
+    const outcomeCls = isWin ? ' outcome-' + (it.outcome || 'none') : '';
     return (
       <div key={it.key} className="pull-tilewrap">
         <a
@@ -171,12 +192,13 @@ export class PullTicker extends Component {
           href={ETHERSCAN + '/tx/' + it.tx}
           target="_blank"
           rel="noopener noreferrer"
-          title={isWin ? 'won listing #' + it.listingId + ' — backing ' + fmtEth(it.backing) + ' ETH' : 'acquisition refunded'}
+          title={(isWin ? 'won listing #' + it.listingId + ' — backing ' + fmtEth(it.backing) + ' ETH' : 'acquisition refunded')
+            + (it.outcome ? ' — ' + OUTCOME_LABEL[it.outcome] : isWin ? ' — undecided' : '')}
         >
           {isWin && it.img
-            ? <img className="pull-ticker-art" src={it.img} alt="" onError={() => this.artFailed(it.key)} />
+            ? <img className={'pull-ticker-art' + outcomeCls} src={it.img} alt="" onError={() => this.artFailed(it.key)} />
             : (
-              <div className="pull-ticker-art pull-ticker-art-placeholder">
+              <div className={'pull-ticker-art pull-ticker-art-placeholder' + outcomeCls}>
                 <i className={isWin ? 'mdi mdi-trophy text-warning' : 'mdi mdi-undo-variant text-danger'}></i>
               </div>
             )}
@@ -205,6 +227,12 @@ export class PullTicker extends Component {
             <div className="pull-ticker-sub text-muted">
               {pending === null ? '…' : pending + ' rolling'}
               {rollsPerHour !== null ? ' · ' + rollsPerHour + '/hr' : ''}
+            </div>
+            <div className="outcome-legend text-muted">
+              <span className="outcome-chip outcome-none"></span> undecided
+              <span className="outcome-chip outcome-kept"></span> kept
+              <span className="outcome-chip outcome-eth"></span> ETH
+              <span className="outcome-chip outcome-fwa"></span> FWA
             </div>
           </div>
           <div className="pull-ticker-strip">
