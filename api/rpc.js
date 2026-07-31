@@ -13,7 +13,7 @@ const { hotlinkBlocked } = require('./_shared');
 const ALLOWED = new Set([
   'eth_call', 'eth_blockNumber', 'eth_getBlockByNumber', 'eth_getLogs',
   'eth_getBalance', 'eth_getTransactionReceipt', 'net_peerCount',
-  'eth_syncing', 'eth_chainId', 'eth_gasPrice',
+  'eth_syncing', 'eth_chainId', 'eth_gasPrice', 'eth_getCode',
 ]);
 
 // edge-cache seconds per method; a batch gets the minimum across its calls
@@ -26,6 +26,7 @@ const TTL = {
   net_peerCount: 30,
   eth_syncing: 30,
   eth_getLogs: 60,
+  eth_getCode: 3600,
   eth_chainId: 3600,
   eth_getTransactionReceipt: 0,
 };

@@ -90,6 +90,7 @@ const rpcCache = new Map(); // key -> { expires, result }
 function cacheTtl(method) {
   if (!HOSTED) return 0;
   switch (method) {
+    case 'eth_getCode': return 3600000; // EOA-vs-contract checks — code barely changes
     case 'eth_getLogs': return 60000;
     case 'eth_call':
     case 'eth_getBalance':
@@ -442,6 +443,42 @@ async function flushEnsQueue() {
     batch.get(a).forEach((resolve) => resolve(names[i]));
   });
 }
+
+// EOA vs contract — batched + cached eth_getCode, same shape as the ENS
+// resolver. Drives where an address link takes people: EOAs → address.vision,
+// contracts → abi.ninja (both link onward to etherscan if wanted).
+const codeCache = new Map();
+let codePending = new Map();
+let codeTimer = null;
+
+export function isContract(address) {
+  if (!address) return Promise.resolve(false);
+  const a = address.toLowerCase();
+  if (codeCache.has(a)) return Promise.resolve(codeCache.get(a));
+  return new Promise((resolve) => {
+    if (!codePending.has(a)) codePending.set(a, []);
+    codePending.get(a).push(resolve);
+    if (!codeTimer) codeTimer = setTimeout(flushCodeQueue, 50);
+  });
+}
+
+async function flushCodeQueue() {
+  codeTimer = null;
+  const batch = codePending;
+  codePending = new Map();
+  const addrs = [...batch.keys()];
+  const res = await rpcBatchSafe(addrs.map((a) => ['eth_getCode', [a, 'latest']]));
+  addrs.forEach((a, i) => {
+    const contract = !!(res[i] && res[i] !== '0x');
+    if (res[i] != null) codeCache.set(a, contract); // null = transient error, retry next ask
+    batch.get(a).forEach((resolve) => resolve(contract));
+  });
+}
+
+export const addressVisionUrl = (addr) => 'https://address.vision/' + addr;
+export const abiNinjaUrl = (addr, methods) =>
+  'https://abi.ninja/' + addr + '/1' + (methods && methods.length ? '?methods=' + encodeURIComponent(methods.join(',')) : '');
+export const addrExplorerUrl = (addr, contract) => (contract ? abiNinjaUrl(addr) : addressVisionUrl(addr));
 
 // Proxy an http(s) URL through /api/meta (Vercel fn in prod, setupProxy in
 // dev) — several big collections' metadata hosts (artblocks, milady,

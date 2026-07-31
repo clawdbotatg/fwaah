@@ -10,7 +10,7 @@ import FwaAddress from '../fwa/FwaAddress';
 import {
   FWA_ADDRESS, ETHERSCAN, SELECTORS, TOPICS,
   rpcBatch, ethCall, ethCallTo, toBig, toNum, word, wordAddr, topicNum,
-  fmtEth, fmtNum, fmtAge, shortAddr, describeLog, openSeaUrl,
+  fmtEth, fmtNum, fmtAge, shortAddr, describeLog, openSeaUrl, abiNinjaUrl,
   fetchListingArt, POLL,
 } from '../fwa/fwa';
 
@@ -714,7 +714,7 @@ export class Dashboard extends Component {
                   <ul className="list-unstyled mb-0 small">
                     {whitelist.map(([addr, name]) => (
                       <li key={addr} className="py-1 border-bottom d-flex justify-content-between">
-                        <a href={ETHERSCAN + '/token/' + addr} target="_blank" rel="noopener noreferrer">{name}</a>
+                        <a href={abiNinjaUrl(addr)} target="_blank" rel="noopener noreferrer">{name}</a>
                         <span className="text-muted">{shortAddr(addr)}</span>
                       </li>
                     ))}
@@ -788,19 +788,19 @@ export class Dashboard extends Component {
                   </li>
                   <li className="d-flex justify-content-between py-1 border-bottom">
                     <span className="text-muted">FWA pool</span>
-                    <a href={ETHERSCAN + '/address/' + FWA_ADDRESS} target="_blank" rel="noopener noreferrer">{shortAddr(FWA_ADDRESS)}</a>
+                    <a href={abiNinjaUrl(FWA_ADDRESS, ['quoteAcquisitionPrice', 'acquire_0', 'listings', 'listNFT'])} target="_blank" rel="noopener noreferrer">{shortAddr(FWA_ADDRESS)}</a>
                   </li>
                   <li className="d-flex justify-content-between py-1 border-bottom">
                     <span className="text-muted">FWA token</span>
-                    {fwa ? <a href={ETHERSCAN + '/token/' + fwa.token} target="_blank" rel="noopener noreferrer">{shortAddr(fwa.token)}</a> : '—'}
+                    {fwa ? <a href={abiNinjaUrl(fwa.token, ['balanceOf', 'totalSupply'])} target="_blank" rel="noopener noreferrer">{shortAddr(fwa.token)}</a> : '—'}
                   </li>
                   <li className="d-flex justify-content-between py-1 border-bottom">
                     <span className="text-muted">rewards module</span>
-                    {fwa ? <a href={ETHERSCAN + '/address/' + fwa.rewards} target="_blank" rel="noopener noreferrer">{shortAddr(fwa.rewards)}</a> : '—'}
+                    {fwa ? <a href={abiNinjaUrl(fwa.rewards, ['emissionStart', 'pendingDepositorTokens', 'tokenCredit'])} target="_blank" rel="noopener noreferrer">{shortAddr(fwa.rewards)}</a> : '—'}
                   </li>
                   <li className="d-flex justify-content-between py-1">
                     <span className="text-muted">VRF service</span>
-                    {fwa ? <a href={ETHERSCAN + '/address/' + fwa.vrfService} target="_blank" rel="noopener noreferrer">{shortAddr(fwa.vrfService)}</a> : '—'}
+                    {fwa ? <a href={abiNinjaUrl(fwa.vrfService)} target="_blank" rel="noopener noreferrer">{shortAddr(fwa.vrfService)}</a> : '—'}
                   </li>
                 </ul>
                 <p className="text-muted small mb-0 mt-2">

@@ -1,6 +1,6 @@
 import React, { Component } from 'react';
 import makeBlockie from 'ethereum-blockies-base64';
-import { ETHERSCAN, ensName, shortAddr } from './fwa';
+import { ensName, isContract, addrExplorerUrl, shortAddr } from './fwa';
 
 const blockieCache = {};
 function blockie(address) {
@@ -10,11 +10,12 @@ function blockie(address) {
 }
 
 // Scaffold-ETH-style <Address/>: blockie identicon + ENS name (resolved through
-// the local node, batched + cached) falling back to the short hex form, linking
-// to Etherscan. sizes: xs | sm | base. `noLink` renders a span (for use inside
-// other anchors, e.g. the pull ticker tiles).
+// the local node, batched + cached) falling back to the short hex form. Links
+// EOAs to address.vision and contracts to abi.ninja (batched eth_getCode tells
+// them apart; either site links onward to etherscan). sizes: xs | sm | base.
+// `noLink` renders a span (for use inside other anchors, e.g. ticker tiles).
 export class FwaAddress extends Component {
-  state = { name: null };
+  state = { name: null, contract: false };
 
   componentDidMount() {
     this.mounted = true;
@@ -23,7 +24,7 @@ export class FwaAddress extends Component {
 
   componentDidUpdate(prevProps) {
     if (prevProps.address !== this.props.address) {
-      this.setState({ name: null });
+      this.setState({ name: null, contract: false });
       this.lookup();
     }
   }
@@ -36,6 +37,9 @@ export class FwaAddress extends Component {
     const { address } = this.props;
     ensName(address).then((name) => {
       if (this.mounted && address === this.props.address && name) this.setState({ name });
+    });
+    isContract(address).then((contract) => {
+      if (this.mounted && address === this.props.address && contract) this.setState({ contract });
     });
   }
 
@@ -54,7 +58,7 @@ export class FwaAddress extends Component {
     return (
       <a
         className={cls}
-        href={ETHERSCAN + '/address/' + address}
+        href={addrExplorerUrl(address, this.state.contract)}
         target="_blank"
         rel="noopener noreferrer"
         title={address}
