@@ -150,6 +150,16 @@ export class PullTicker extends Component {
     } catch (e) { /* art is decoration — never break the ticker over it */ }
   }
 
+  // a failed art load clears the item's img in STATE so React swaps in the
+  // placeholder itself — mutating the DOM under React (the old outerHTML
+  // trick) crashes the next unmount with removeChild-not-a-child
+  artFailed(key) {
+    if (!this.alive) return;
+    this.setState((prev) => ({
+      items: prev.items.map((it) => (it.key === key ? { ...it, img: null } : it)),
+    }));
+  }
+
   renderItem(it) {
     const age = fmtAge(Math.max(0, (this.state.now - it.tsMs) / 1000));
     const isWin = it.kind === 'win';
@@ -164,7 +174,7 @@ export class PullTicker extends Component {
           title={isWin ? 'won listing #' + it.listingId + ' — backing ' + fmtEth(it.backing) + ' ETH' : 'acquisition refunded'}
         >
           {isWin && it.img
-            ? <img className="pull-ticker-art" src={it.img} alt="" onError={(e) => { e.target.outerHTML = '<div class="pull-ticker-art pull-ticker-art-placeholder"><i class="mdi mdi-trophy text-warning"></i></div>'; }} />
+            ? <img className="pull-ticker-art" src={it.img} alt="" onError={() => this.artFailed(it.key)} />
             : (
               <div className="pull-ticker-art pull-ticker-art-placeholder">
                 <i className={isWin ? 'mdi mdi-trophy text-warning' : 'mdi mdi-undo-variant text-danger'}></i>

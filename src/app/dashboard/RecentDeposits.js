@@ -80,6 +80,15 @@ export class RecentDeposits extends Component {
     } catch (e) { /* retry on the next poll */ }
   }
 
+  // failed art clears state so React swaps the placeholder itself — never
+  // mutate the DOM under React (outerHTML swaps crash later unmounts)
+  artFailed(key) {
+    if (!this.alive) return;
+    this.setState((prev) => ({
+      items: prev.items.map((it) => (it.key === key ? { ...it, img: null } : it)),
+    }));
+  }
+
   render() {
     const { items, now } = this.state;
     return (
@@ -104,7 +113,7 @@ export class RecentDeposits extends Component {
                     title={'listing #' + it.listingId + ' deposited — backing ' + fmtEth(it.backing) + ' ETH'}
                   >
                     {it.img
-                      ? <img className="pull-ticker-art hv-art" src={it.img} alt="" onError={(e) => { e.target.outerHTML = '<div class="pull-ticker-art hv-art pull-ticker-art-placeholder"><i class="mdi mdi-image text-info"></i></div>'; }} />
+                      ? <img className="pull-ticker-art hv-art" src={it.img} alt="" onError={() => this.artFailed(it.key)} />
                       : (
                         <div className="pull-ticker-art hv-art pull-ticker-art-placeholder">
                           <i className="mdi mdi-image text-info"></i>
