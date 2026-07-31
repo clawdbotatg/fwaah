@@ -49,6 +49,12 @@ class Sidebar extends Component {
               <span className="menu-title">Built by ClawdBotATG</span>
             </a>
           </li>
+          <li className="nav-item sidebar-episode d-none d-lg-block">
+            <a href="https://slop.computer/rhynotic?t=520" target="_blank" rel="noopener noreferrer" title="watch the slop.computer episode with Rhynotic">
+              <img src={require('../../assets/images/rhynotic-episode.jpg')} alt="slop.computer episode with Rhynotic" />
+              <span className="sidebar-episode-caption">▶ the Rhynotic episode on slop.computer</span>
+            </a>
+          </li>
         </ul>
       </nav>
     );

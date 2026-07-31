@@ -658,3 +658,31 @@ body:has(.fwaah-fork-banner) .main-panel {
   object-fit: contain;
   image-rendering: pixelated;
 }
+
+// slop.computer episode card in the sidebar Links section
+.sidebar-episode {
+  padding: 0.75rem 1.5rem;
+
+  a { display: block; text-decoration: none; }
+
+  img {
+    width: 100%;
+    border-radius: 6px;
+    display: block;
+    transition: filter 0.15s ease;
+  }
+
+  a:hover img { filter: brightness(1.15); }
+
+  .sidebar-episode-caption {
+    display: block;
+    margin-top: 0.35rem;
+    font-size: 0.72rem;
+    color: #6c7293;
+  }
+
+  a:hover .sidebar-episode-caption { color: #ffffff; }
+}
+
+// icon-only sidebar has no room for the card
+.sidebar-icon-only .sidebar-episode { display: none !important; }
