@@ -53,6 +53,33 @@ const SELECTORS = {
 const TOPICS = {
   ConfigSet: '0x150110afd46e9924086bf85c855aae25722518b293155bf0ae689dd99a2e88cc', // event topic hash (public) — gitleaks:allow
   CollectionWhitelistSet: '0x4c4950b9ef6cb1bc030a44fd8dc97dd16083b2731fb3516ed4f0b9cdffcc9527', // event topic hash (public) — gitleaks:allow
+  // activity events (topic hashes are public keccak of the event sigs)
+  AcquisitionRequested: '0xf23e34f4aa4a06ecddd309d9692e7b7ca45b76fd0d5f4ce4f7fbf29731d9abd6', // gitleaks:allow
+  NFTAllocated: '0xaf0d8c007926747ede4270a56f69d2e872c3f0d7e1ef7bbc643b3185c50f6758', // gitleaks:allow
+  NFTKept: '0xe71c2721f75bef3206b21176a6d26685852a16878249fc84d18f443f959bb8f5', // gitleaks:allow
+  NFTRelisted: '0x5fa40266a1e401404f322db009d5f8631ed44abc96b84784d9f8f90a8846abd8', // gitleaks:allow
+  DepositorBidAccepted: '0x88ebc94b0ff4693b3d25995dc7c5c4e5683a8ca7de00836773ca24c8b69d78e3', // gitleaks:allow
+  DepositorBidAcceptedAsTokens: '0x819cd055ab6ba83877ab68882609b8d7aa75d4951f6d89fa99d3b59fa45f439f', // gitleaks:allow
+  AcquisitionExpired: '0x97639294216e9dc091da2646074b483c81c79f6b6143e69b244331ecded15b12', // gitleaks:allow
+  AcquisitionRefundedNoListing: '0x4906638bdfd382f0f3258500c1e972e71b9b3cd95ceacd95ca188d493c8e0ee8', // gitleaks:allow
+  AcquisitionRefundedSlippage: '0x6e0c967dcdde10dc8a73e11f39aac35df75b9647cd6db11c0918a0d49e98f22a', // gitleaks:allow
+  NFTListed: '0x01c953cf171a8c32b553c5b7e0964bae6b2123db065615e54e8425fec3ec16cd', // gitleaks:allow
+  ListingWithdrawn: '0x155ad598d62a05a119f984c463f10d75b4fe9b0af1e0fbe0c2b2caaf8e4bdfda', // gitleaks:allow
+  UnsettledFinalized: '0x6f4528c508dc00c3d0fb4dcffe0346f48ae4332f18abe3d4eff0b27895997929', // gitleaks:allow
+};
+
+// human labels for ConfigSet(key, value) — mirrors CONFIG_KEYS in fwa.js
+const CONFIG_LABELS = {
+  1: 'VRF callback gas', 2: 'VRF subscription', 7: 'VRF confirmations',
+  10: 'max activations / pull', 11: 'selection timeout (blocks)', 12: 'max pulls / tx',
+  13: 'pull surcharge (bps)', 14: 'selection slippage (bps)', 15: 'crown tithe (bps)',
+  16: 'crown takeover threshold (bps)', 17: 'sell-back payout (bps)',
+  18: 'owner cut of pulls (bps)', 19: 'owner cut of sell-backs (bps)',
+  20: 'winner settlement window (s)', 21: 'finalize window (s)', 22: 'min deposit backing (wei)',
+  23: 'protocol fees → FWA token (bps)', 24: 'VRF key hash', 25: 'staging queue cap',
+  40: 'retained slice → protocol', 41: 'pulls enabled', 42: 'withdraw-only mode',
+  43: 'deposit whitelist', 44: 'sell-back as FWA tokens',
+  60: 'VRF coordinator', 61: 'payout address', 62: 'whitelist manager',
 };
 
 // Knobs with no public getter, from ConfigSet history at SNAPSHOT_BLOCK.
@@ -175,7 +202,7 @@ function fmtEth(wei) {
 }
 
 module.exports = {
-  FWA_ADDRESS, DEPLOY_BLOCK, SNAPSHOT_BLOCK, SELECTORS, TOPICS,
+  FWA_ADDRESS, DEPLOY_BLOCK, SNAPSHOT_BLOCK, SELECTORS, TOPICS, CONFIG_LABELS,
   KNOB_SNAPSHOT, WHITELIST_SNAPSHOT,
   toBig, toNum, word, wordAddr, decodeString, fmtEth,
 };

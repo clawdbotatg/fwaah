@@ -32,6 +32,11 @@ server builds it against your `NODE_RPC_URL`), e.g. `http://localhost:3000/lived
 | `contracts` | core / token / rewards / VRF addresses, owner, payout, whitelist manager, deploy block, Sourcify source+ABI URLs |
 | `pool` | active listing count, pool ETH balance, **current pull price** (`pullPriceEth`), pending/unsettled pulls, escrow, accrued owner fees |
 | `crown` | the top-backed listing: which NFT, its backing, its pot (see mechanics) |
+| `activity24h` | last-24h totals: pull count, total pull fees in ETH, deposits, withdrawals, and a `pullOutcomes` tally (kept / sold back for ETH / sold back for FWA / relisted / defaulted / refunded) |
+| `recentPulls` | last 15 pulls, newest first: which NFT (collection name + tokenId), its backing, the winner, and the **outcome** — "kept the NFT", "sold back for X ETH", "pending — winner choosing", … — plus tx hash and approx time |
+| `topPulls24h` | the 5 highest-backing NFTs pulled in the last 24h, same shape |
+| `recentDeposits` | last 10 NFTs listed into the pool: collection, tokenId, backing, depositor |
+| `recentRuleChanges` | latest owner knob turns and whitelist edits, human-labeled (e.g. "pull surcharge (bps) → 500", "whitelist: Bold Pepes allowed"), with tx hashes — check here before assuming a rule is stable |
 | `rules` | every owner-tunable knob, live: surcharge, sell-back payout, owner cuts, crown tithe/threshold, windows, min backing, max pulls/tx, kill switches (`pullsEnabled`, `withdrawOnlyMode`), whitelist on/off |
 | `emission` | FWA token emission schedule: start/end ISO timestamps, `secondsRemaining`, `ended`, FWA/day to depositors and pullers, total supply, whether external buys are open, buyback pool ETH |
 | `whitelist` | `enabled` flag + the full list of collections allowed to deposit, `{address, name}` |
@@ -84,6 +89,13 @@ server builds it against your `NODE_RPC_URL`), e.g. `http://localhost:3000/lived
   values is speculation.
 - **"What does a pull cost right now / what's in the pool?"** — `pool`.
 - **"Who holds the Crown?"** — `crown` (NFT, backing, pot, depositor).
+- **"What's been pulled lately / any big pulls?"** — `recentPulls` and
+  `topPulls24h`, each with the NFT, backing, winner, and outcome.
+- **"How active is the pool / do winners keep or sell?"** — `activity24h`:
+  volume, fee flow, and the outcome split (sell-backs vs keeps is a good
+  read on whether pullers are in it for the NFTs or the ETH/FWA).
+- **"Did the rules change recently?"** — `recentRuleChanges` (each entry has
+  a tx hash to cite).
 
 ## Going deeper: direct chain access
 

@@ -12,10 +12,12 @@
 // setupProxy dev twin, so forks at home serve their own snapshot too.
 
 const {
-  FWA_ADDRESS, DEPLOY_BLOCK, SNAPSHOT_BLOCK, SELECTORS, TOPICS,
+  FWA_ADDRESS, DEPLOY_BLOCK, SNAPSHOT_BLOCK, SELECTORS, TOPICS, CONFIG_LABELS,
   KNOB_SNAPSHOT, WHITELIST_SNAPSHOT,
   toBig, toNum, word, wordAddr, decodeString, fmtEth,
 } = require('./_fwa');
+
+const DAY_BLOCKS = 7200; // ~24h at 12s blocks
 
 const ZERO = /^0x0{40}$/;
 
@@ -107,6 +109,26 @@ module.exports = async (req, res) => {
       topics: [[TOPICS.ConfigSet, TOPICS.CollectionWhitelistSet]],
     }]]));
 
+    // 24h activity feed, chunked so a home node's ~20k-results getLogs cap holds
+    const FEED_TOPICS = [
+      TOPICS.AcquisitionRequested, TOPICS.NFTAllocated, TOPICS.NFTKept, TOPICS.NFTRelisted,
+      TOPICS.DepositorBidAccepted, TOPICS.DepositorBidAcceptedAsTokens,
+      TOPICS.AcquisitionExpired, TOPICS.AcquisitionRefundedNoListing, TOPICS.AcquisitionRefundedSlippage,
+      TOPICS.NFTListed, TOPICS.ListingWithdrawn, TOPICS.UnsettledFinalized,
+    ];
+    const feedStart = Math.max(latest - DAY_BLOCKS, 0);
+    const feedRanges = [];
+    for (let from = feedStart; from <= latest; from += 1800) {
+      feedRanges.push([from, Math.min(from + 1799, latest)]);
+    }
+    const feedRangeStart = calls2.length;
+    calls2.push(...feedRanges.map(([from, to]) => ['eth_getLogs', [{
+      address: FWA_ADDRESS,
+      fromBlock: '0x' + from.toString(16),
+      toBlock: '0x' + to.toString(16),
+      topics: [[...FEED_TOPICS]],
+    }]]));
+
     const r2 = await rpc(upstream, calls2);
     let i2 = 0;
     let top = null;
@@ -129,7 +151,8 @@ module.exports = async (req, res) => {
         buysOpen: toBig(buyingH) === 1n, buybackPool: toBig(buyPoolH),
       };
     }
-    const adminLogs = [].concat(...r2.slice(i2));
+    const adminLogs = [].concat(...r2.slice(i2, feedRangeStart));
+    const feedLogs = [].concat(...r2.slice(feedRangeStart));
 
     // overlay the baked knob/whitelist snapshot with anything that changed since
     const knobs = { ...KNOB_SNAPSHOT };
@@ -171,6 +194,116 @@ module.exports = async (req, res) => {
 
     const nowS = Math.floor(Date.now() / 1000);
     const emEnd = emission && emission.start ? emission.start + emission.duration : null;
+    const T = TOPICS;
+    const topicNum = (t) => Number(BigInt(t));
+    const topicAddr = (t) => '0x' + t.slice(26);
+    const blockMeta = (log) => {
+      const bn = toNum(log.blockNumber);
+      const ageSeconds = (latest - bn) * 12;
+      return { block: bn, ageSeconds, approxTime: new Date((nowS - ageSeconds) * 1000).toISOString(), txHash: log.transactionHash };
+    };
+
+    // ---- 24h activity: totals, outcome tally, per-pull + per-deposit detail ----
+    const tally = { pulls: 0, pullFeesWei: 0n, deposits: 0, withdrawals: 0 };
+    const outcomes = { allocated: 0, kept: 0, soldBackForEth: 0, soldBackForFwa: 0, relisted: 0, refundedOrExpired: 0, defaulted: 0 };
+    const pullsById = new Map(); // listingId -> pull record (last allocation wins)
+    const depositEvents = [];
+    const collectionsSeen = new Map(); // listingId -> {collection, tokenId} from NFTListed
+    feedLogs.forEach((log) => {
+      const t0 = log.topics[0];
+      if (t0 === T.AcquisitionRequested) {
+        tally.pulls += 1;
+        tally.pullFeesWei += word(log.data, 0);
+      } else if (t0 === T.NFTAllocated) {
+        outcomes.allocated += 1;
+        const id = topicNum(log.topics[2]);
+        pullsById.set(id, {
+          ...blockMeta(log),
+          listingId: id,
+          winner: topicAddr(log.topics[3]),
+          backingEth: fmtEth(word(log.data, 1)),
+          backingWei: word(log.data, 1),
+          outcome: 'pending — winner choosing',
+        });
+      } else if (t0 === T.NFTKept) {
+        outcomes.kept += 1;
+        const p = pullsById.get(topicNum(log.topics[1]));
+        if (p) p.outcome = 'kept the NFT';
+      } else if (t0 === T.DepositorBidAccepted) {
+        outcomes.soldBackForEth += 1;
+        const p = pullsById.get(topicNum(log.topics[1]));
+        if (p) p.outcome = 'sold back for ' + fmtEth(word(log.data, 0)) + ' ETH';
+      } else if (t0 === T.DepositorBidAcceptedAsTokens) {
+        outcomes.soldBackForFwa += 1;
+        const p = pullsById.get(topicNum(log.topics[1]));
+        if (p) p.outcome = 'sold back for FWA tokens (' + fmtEth(word(log.data, 0)) + ' ETH worth)';
+      } else if (t0 === T.NFTRelisted) {
+        outcomes.relisted += 1;
+        const p = pullsById.get(topicNum(log.topics[1]));
+        if (p) p.outcome = 'relisted as #' + topicNum(log.topics[2]);
+      } else if (t0 === T.UnsettledFinalized) {
+        outcomes.defaulted += 1;
+        const p = pullsById.get(topicNum(log.topics[1]));
+        if (p) p.outcome = 'defaulted (never settled)';
+      } else if (t0 === T.AcquisitionExpired || t0 === T.AcquisitionRefundedNoListing || t0 === T.AcquisitionRefundedSlippage) {
+        outcomes.refundedOrExpired += 1;
+      } else if (t0 === T.NFTListed) {
+        tally.deposits += 1;
+        const id = topicNum(log.topics[1]);
+        const rec = {
+          ...blockMeta(log),
+          listingId: id,
+          depositor: topicAddr(log.topics[3]),
+          collection: wordAddr(log.data, 0),
+          tokenId: word(log.data, 1).toString(),
+          backingEth: fmtEth(word(log.data, 3)),
+        };
+        collectionsSeen.set(id, rec);
+        depositEvents.push(rec);
+      } else if (t0 === T.ListingWithdrawn) {
+        tally.withdrawals += 1;
+      }
+    });
+
+    // collection/tokenId for pulled listings: 24h NFTListed events first,
+    // then a best-effort listings() batch for ids deposited before the window
+    const needStruct = [...pullsById.values()].filter((p) => !collectionsSeen.has(p.listingId));
+    if (needStruct.length) {
+      const rStruct = await rpc(upstream, needStruct.map((p) => call(FWA_ADDRESS, SELECTORS.listings, [BigInt(p.listingId)])));
+      needStruct.forEach((p, i) => {
+        const raw = rStruct[i];
+        const coll = wordAddr(raw, 0);
+        if (!ZERO.test(coll)) collectionsSeen.set(p.listingId, { collection: coll, tokenId: word(raw, 3).toString() });
+      });
+    }
+    const wlName = (addr) => wl.get(addr) || null;
+    const finishPull = (p) => {
+      const seen = collectionsSeen.get(p.listingId);
+      const { backingWei, ...rest } = p;
+      return {
+        ...rest,
+        collection: seen ? seen.collection : null,
+        collectionName: seen ? (wlName(seen.collection) || seen.collection) : null,
+        tokenId: seen ? seen.tokenId : null,
+      };
+    };
+    const allPulls = [...pullsById.values()];
+    const recentPulls = allPulls.slice(-15).reverse().map(finishPull);
+    const topPulls24h = [...allPulls].sort((a, b) => (b.backingWei > a.backingWei ? 1 : -1)).slice(0, 5).map(finishPull);
+    const recentDeposits = depositEvents.slice(-10).reverse().map((rec) => ({
+      ...rec, collectionName: wlName(rec.collection) || rec.collection,
+    }));
+
+    const recentRuleChanges = adminLogs.slice(-10).reverse().map((log) => {
+      const base = blockMeta(log);
+      if (log.topics[0] === T.ConfigSet) {
+        const key = topicNum(log.topics[1]);
+        const value = word(log.data, 0);
+        return { ...base, change: (CONFIG_LABELS[key] || 'config key ' + key) + ' → ' + value.toString() };
+      }
+      const addr = wordAddr(log.topics[1], 0);
+      return { ...base, change: 'whitelist: ' + (wlName(addr) || addr) + (word(log.data, 0) === 0n ? ' removed' : ' allowed') };
+    });
 
     const out = {
       about: 'FWAAH! live snapshot of the FWA pool (Ethereum mainnet). Field guide + how to go deeper: https://fwaah.com/skill.md',
@@ -215,6 +348,17 @@ module.exports = async (req, res) => {
         depositor: top.depositor,
         backingEth: fmtEth(top.backingWei),
       } : null,
+      activity24h: {
+        pulls: tally.pulls,
+        pullFeesEth: fmtEth(tally.pullFeesWei),
+        deposits: tally.deposits,
+        withdrawals: tally.withdrawals,
+        pullOutcomes: outcomes,
+      },
+      recentPulls,
+      topPulls24h,
+      recentDeposits,
+      recentRuleChanges,
       rules: {
         pullSurchargeBps: Number(knobs.pullSurchargeBps),
         sellBackPayoutBps: Number(v.settlementDiscountBps),
