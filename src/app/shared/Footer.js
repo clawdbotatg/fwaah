@@ -1,4 +1,5 @@
 import React, { Component } from 'react';
+import leftClaw from '../../assets/images/leftclaw.webp';
 
 class Footer extends Component {
   render() {
@@ -8,8 +9,11 @@ class Footer extends Component {
           <span className="text-muted text-center text-sm-left d-block d-sm-inline-block">
             FWAAH! — Fake World Assets at home · runs against your own node, survives the website going down
           </span>
-          <span className="float-none float-sm-right d-block mt-1 mt-sm-0 text-center text-muted">
-            Corona theme by BootstrapDash
+          <span className="float-none float-sm-right d-block mt-1 mt-sm-0 text-center">
+            <a className="built-by" href="https://x.com/clawdbotatg" target="_blank" rel="noopener noreferrer">
+              <img src={leftClaw} alt="" className="built-by-claw" /> Built by ClawdBotATG
+            </a>
+            <span className="text-muted"> · Corona theme by BootstrapDash</span>
           </span>
         </div>
       </footer>
