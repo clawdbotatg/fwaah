@@ -1,4 +1,5 @@
 const { createProxyMiddleware } = require('http-proxy-middleware');
+const { safeFetch } = require('../api/_shared');
 
 // Proxy JSON-RPC calls to the local eth node so the browser never deals with CORS.
 // Set NODE_RPC_URL in .env (see .env.example) or inline: NODE_RPC_URL=http://host:8545 npm start
@@ -6,26 +7,20 @@ module.exports = function (app) {
   const target = process.env.NODE_RPC_URL || 'http://127.0.0.1:8545';
   // Dev twin of api/meta.js: some collections' metadata hosts send no CORS
   // headers, so the client falls back to /api/meta and we fetch server-side.
+  // safeFetch blocks private/LAN hosts on every redirect hop — this runs on
+  // home networks, where an open fetch proxy would reach the router/node.
   app.use('/api/meta', async (req, res) => {
-    let url;
+    let upstream;
     try {
-      url = new URL(String(req.query.u || ''));
-      if (url.protocol !== 'https:' && url.protocol !== 'http:') throw new Error('bad scheme');
+      upstream = await safeFetch(req.query.u);
     } catch (e) {
-      res.status(400).json({ error: 'bad url' });
+      if (e && e.code) res.status(e.code).json({ error: e.msg });
+      else res.status(502).json({ error: 'upstream fetch failed' });
       return;
     }
-    try {
-      const ctl = new AbortController();
-      const timer = setTimeout(() => ctl.abort(), 15000);
-      const upstream = await fetch(url, { redirect: 'follow', signal: ctl.signal });
-      clearTimeout(timer);
-      const buf = Buffer.from(await upstream.arrayBuffer());
-      res.setHeader('Content-Type', upstream.headers.get('content-type') || 'application/octet-stream');
-      res.status(upstream.status).send(buf);
-    } catch (e) {
-      res.status(502).json({ error: 'upstream fetch failed' });
-    }
+    const buf = Buffer.from(await upstream.arrayBuffer());
+    res.setHeader('Content-Type', upstream.headers.get('content-type') || 'application/octet-stream');
+    res.status(upstream.status).send(buf);
   });
   // Tell the UI where /rpc actually points, so the status bar can show the
   // node's address. Dev-server only — the hosted site never uses /rpc.

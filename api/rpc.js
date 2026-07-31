@@ -8,6 +8,8 @@
 // Set RPC_UPSTREAM in the Vercel project env (e.g. your Alchemy URL) — the key
 // stays server-side and never ships in the client bundle.
 
+const { hotlinkBlocked } = require('./_shared');
+
 const ALLOWED = new Set([
   'eth_call', 'eth_blockNumber', 'eth_getBlockByNumber', 'eth_getLogs',
   'eth_getBalance', 'eth_getTransactionReceipt', 'net_peerCount',
@@ -29,6 +31,12 @@ const TTL = {
 };
 
 module.exports = async (req, res) => {
+  // Other websites don't get to use this as their free mainnet RPC.
+  if (hotlinkBlocked(req)) {
+    res.status(403).json({ error: 'forbidden' });
+    return;
+  }
+
   const upstream = process.env.RPC_UPSTREAM;
   if (!upstream) {
     res.status(500).json({ error: 'RPC_UPSTREAM env var not configured' });
@@ -62,12 +70,19 @@ module.exports = async (req, res) => {
     }
   }
 
-  const upstreamRes = await fetch(upstream, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  const text = await upstreamRes.text();
+  let upstreamRes, text;
+  try {
+    upstreamRes = await fetch(upstream, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    text = await upstreamRes.text();
+  } catch (e) {
+    res.setHeader('Cache-Control', 'no-store');
+    res.status(502).json({ error: 'upstream rpc unreachable' });
+    return;
+  }
 
   let ttl = Math.min(...calls.map((c) => (TTL[c.method] != null ? TTL[c.method] : 0)));
   if (req.method !== 'GET' || !upstreamRes.ok) ttl = 0;
