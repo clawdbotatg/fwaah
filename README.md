@@ -1,4 +1,4 @@
-# FWAAH!
+<img width="1200" height="630" alt="og" src="https://github.com/user-attachments/assets/1c939098-1b41-4d6a-89c4-bea38d4eb990" />
 
 <img width="1726" height="1136" alt="image" src="https://github.com/user-attachments/assets/142d0d09-1931-42ec-88ab-c620ec623582" />
 
