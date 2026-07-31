@@ -145,7 +145,6 @@ export class DepositPanel extends Component {
           <div className="d-flex flex-wrap align-items-end deposit-row">
             <div className="deposit-title mr-3">
               <div className="pull-ticker-live"><i className="mdi mdi-tray-arrow-down"></i> DEPOSIT AN NFT</div>
-              <div className="text-muted small">back it with ETH · earn a share of every pull fee</div>
             </div>
             {account ? (
               <React.Fragment>
@@ -212,12 +211,6 @@ export class DepositPanel extends Component {
           )}
           {error && <div className="small text-danger mt-2">{error}</div>}
           {done && <div className="small text-success mt-2">{done}</div>}
-          {account && (
-            <p className="text-muted small mb-0 mt-2">
-              your backing escrows an irrevocable standing bid to buy the NFT back if it's pulled — lighter backing
-              gets pulled more often; withdrawing anytime returns NFT + backing
-            </p>
-          )}
         </div>
       </div>
     );

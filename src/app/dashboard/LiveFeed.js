@@ -54,16 +54,27 @@ export class LiveFeed extends Component {
         fresh.push({
           key,
           tx: log.transactionHash,
+          bn: toNum(log.blockNumber),
+          li: toNum(log.logIndex),
           tsMs: Date.now() - (latest - toNum(log.blockNumber)) * 12000,
           ...describeLog(log),
         });
       }
+      // bound the dedupe set by evicting the OLDEST keys (Set keeps insertion
+      // order) — it must stay bigger than a window's worth of logs, or evicted
+      // logs re-ingest every poll and old items flash back above new ones
+      if (this.seen.size > 2000) {
+        const iter = this.seen.values();
+        for (let i = 0; i < 800; i++) this.seen.delete(iter.next().value);
+      }
       if (!fresh.length) return;
-      this.setState((prev) => {
-        const items = [...fresh.reverse(), ...prev.items].slice(0, MAX_KEPT);
-        this.seen = new Set(items.map((it) => it.key)); // keep the dedupe set bounded
-        return { items };
-      });
+      this.setState((prev) => ({
+        // chain order, not arrival order: a re-ingested straggler can never
+        // jump the queue
+        items: [...fresh, ...prev.items]
+          .sort((a, b) => (b.bn - a.bn) || (b.li - a.li))
+          .slice(0, MAX_KEPT),
+      }));
     } catch (e) { /* transient — next poll */ }
   }
 
