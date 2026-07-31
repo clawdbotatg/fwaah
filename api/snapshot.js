@@ -266,8 +266,15 @@ module.exports = async (req, res) => {
     });
 
     // collection/tokenId for pulled listings: 24h NFTListed events first,
-    // then a best-effort listings() batch for ids deposited before the window
-    const needStruct = [...pullsById.values()].filter((p) => !collectionsSeen.has(p.listingId));
+    // then a best-effort listings() batch — but only for the ~20 pulls we
+    // actually output (an active day has thousands of pulls on pre-window
+    // listings; resolving them all would be a huge upstream batch)
+    const allPullsChrono = [...pullsById.values()];
+    const shown = new Set([
+      ...allPullsChrono.slice(-15),
+      ...[...allPullsChrono].sort((a, b) => (b.backingWei > a.backingWei ? 1 : -1)).slice(0, 5),
+    ]);
+    const needStruct = [...shown].filter((p) => !collectionsSeen.has(p.listingId));
     if (needStruct.length) {
       const rStruct = await rpc(upstream, needStruct.map((p) => call(FWA_ADDRESS, SELECTORS.listings, [BigInt(p.listingId)])));
       needStruct.forEach((p, i) => {
@@ -287,9 +294,8 @@ module.exports = async (req, res) => {
         tokenId: seen ? seen.tokenId : null,
       };
     };
-    const allPulls = [...pullsById.values()];
-    const recentPulls = allPulls.slice(-15).reverse().map(finishPull);
-    const topPulls24h = [...allPulls].sort((a, b) => (b.backingWei > a.backingWei ? 1 : -1)).slice(0, 5).map(finishPull);
+    const recentPulls = allPullsChrono.slice(-15).reverse().map(finishPull);
+    const topPulls24h = [...allPullsChrono].sort((a, b) => (b.backingWei > a.backingWei ? 1 : -1)).slice(0, 5).map(finishPull);
     const recentDeposits = depositEvents.slice(-10).reverse().map((rec) => ({
       ...rec, collectionName: wlName(rec.collection) || rec.collection,
     }));
