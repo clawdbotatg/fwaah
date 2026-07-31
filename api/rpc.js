@@ -90,9 +90,13 @@ module.exports = async (req, res) => {
 
   res.setHeader('Content-Type', 'application/json');
   res.setHeader('Access-Control-Allow-Origin', '*');
+  // blockNumber is the app's heartbeat — long stale-while-revalidate makes the
+  // live feed lag a poll behind, so it gets a tight window; everything else
+  // tolerates (and benefits from) serving stale while refreshing.
+  const swr = calls.every((c) => c.method === 'eth_blockNumber') ? ttl : ttl * 5;
   res.setHeader(
     'Cache-Control',
-    ttl > 0 ? `public, s-maxage=${ttl}, stale-while-revalidate=${ttl * 5}` : 'no-store'
+    ttl > 0 ? `public, s-maxage=${ttl}, stale-while-revalidate=${swr}` : 'no-store'
   );
   res.status(upstreamRes.status).send(text);
 };

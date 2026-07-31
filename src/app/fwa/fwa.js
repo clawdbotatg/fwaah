@@ -450,7 +450,10 @@ async function flushEnsQueue() {
       );
       withResolver.forEach(([i], j) => {
         const n = decodeString(nameRes[j]);
-        if (n) names[i] = n;
+        // some default reverse resolvers answer with a bare hex address (seen
+        // live: the zero address) instead of empty — only accept things shaped
+        // like a real ENS name
+        if (n && n.includes('.') && !/^0x[0-9a-fA-F]*$/.test(n)) names[i] = n;
       });
     }
   } catch (_) { /* leave nulls — addresses render as hex */ }

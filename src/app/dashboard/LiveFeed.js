@@ -1,13 +1,19 @@
 import React, { Component } from 'react';
 import {
   FWA_ADDRESS, ETHERSCAN, FEED_TOPICS,
-  rpcBatch, toNum, describeLog, fmtAge, POLL,
+  rpcBatch, toNum, describeLog, fmtAge, HOSTED,
 } from '../fwa/fwa';
 import FwaAddress from '../fwa/FwaAddress';
 
 const WINDOW_BLOCKS = 20; // ~4 min — "what just happened"
 const MAX_SHOWN = 7;
 const MAX_KEPT = 30;
+
+// This strip is the app's heartbeat, so it polls at block cadence even hosted.
+// That stays cheap at any audience size: eth_blockNumber is one shared edge
+// URL (6s TTL), and the getLogs URL only changes when the block does — so all
+// viewers collapse to ~one upstream call per block. At home, hammer away.
+const LIVE_POLL_MS = HOSTED ? 12000 : 4000;
 
 // Chat-style strip of the last few blocks of protocol activity, pinned to the
 // top of the dashboard so the app feels alive without scrolling. New events
@@ -19,7 +25,7 @@ export class LiveFeed extends Component {
     this.alive = true;
     this.seen = new Set();
     this.poll();
-    this.pollTimer = setInterval(() => this.poll(), POLL.ticker);
+    this.pollTimer = setInterval(() => this.poll(), LIVE_POLL_MS);
     this.ageTimer = setInterval(() => this.setState({ now: Date.now() }), 1000);
   }
 
