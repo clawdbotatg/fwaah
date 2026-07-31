@@ -133,8 +133,24 @@ on every refresh — safe to close and reopen anytime.
 - **Deposits** — newest NFTs listed into the pool over the last 24h, with art,
   backing and depositor.
 - **Stats/charts** — pool balance, fee, listings, sequencer backlog; 24h
-  acquisitions + fee volume; outcome mix; protocol health (tree invariant);
-  decoded activity feed.
+  acquisitions + fee volume; outcome mix; protocol health (tree invariant,
+  pull EV = the pool's harmonic-mean backing, per-listing fee income over
+  24h); decoded activity feed.
+- **Top Listing** — the top-pot side game: the single biggest-backed listing
+  earns `topListingShareBps` of every pull into a growing pot. Shows the
+  NFT's art, the pot, its ≈ETH/day growth, and the backing needed to seize
+  the top (current × (1 + threshold)).
+- **Rules of the Game** — every owner-tunable knob, read live where the
+  contract has a getter (surcharge is derived from fee/EV): pull pricing,
+  sell-back payout + owner cuts, top-pot share/threshold, settlement windows,
+  kill switches (pulls / withdraw-only / whitelist / FWA sell-back). Knobs
+  without getters (min backing, the switches) come from a verified
+  `ConfigSet`-history snapshot overlaid with a 7-day event scan, so a knob
+  turn shows up within one poll. A **rule changes** feed lists the owner's
+  recent `ConfigSet` / whitelist / ownership moves, and admin events also
+  land in the main activity feed.
+- **Allowed Collections** — deposits are whitelist-gated; the card lists the
+  allowed collections by name (snapshot + live overlay).
 
 Note: the node caps `eth_getLogs` at 20k results per call, so wide log windows
 are fetched in range chunks (see `Dashboard.refreshLogs`).

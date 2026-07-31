@@ -127,6 +127,17 @@ export const SELECTORS = {
   treeRootWeight: '0x1b9bc525',
   listings: '0xde74e57b',
   tokenURI: '0xc87b56dd', // tokenURI(uint256) — on NFT collections, not on FWA
+  name: '0x06fdde03', // name() — on NFT collections, not on FWA
+  // rules-of-the-game reads (owner-tunable knobs with public getters)
+  finalizeWindow: '0x8600e5cb',
+  ownerAcquisitionFeeBps: '0x2b0b9641',
+  ownerSettlementFeeBps: '0x4a088a42',
+  topListingShareBps: '0x823e645a',
+  topThresholdBps: '0x6a6e8c70',
+  retainedToProtocol: '0x5b69ae6a',
+  owner: '0x8da5cb5b',
+  payoutAddress: '0x5b8d02d7',
+  collectionWhitelisted: '0x666cd313', // collectionWhitelisted(address)
   // pull-panel reads
   quoteAcquisitionPrice: '0x987df4cd',
   settlementDiscountBps: '0xfb2dd096',
@@ -160,7 +171,52 @@ export const TOPICS = {
   TopListingSet: '0x24ace256adc6182b122f3aa90b19d20b6d637236a63154d9a6ceb9032b50b514', // event topic hash (public) — gitleaks:allow
   TopListingSettled: '0x72747a194a7ea234ca6c67bae23a563ff193d2efe4611bec783df82b40c47892', // event topic hash (public) — gitleaks:allow
   FeesPaidOut: '0xcbe199cf5a1eb4e2f03e17cb7d09cad0b775715e745ccfe1e3fef26671433657', // event topic hash (public) — gitleaks:allow
+  // admin / governance events
+  ConfigSet: '0x150110afd46e9924086bf85c855aae25722518b293155bf0ae689dd99a2e88cc', // event topic hash (public) — gitleaks:allow
+  CollectionWhitelistSet: '0x4c4950b9ef6cb1bc030a44fd8dc97dd16083b2731fb3516ed4f0b9cdffcc9527', // event topic hash (public) — gitleaks:allow
+  OwnershipTransferred: '0x8be0079c531659141344cd1fd0a4f28419497f9722a3daafe3b4186f6b6457e0', // event topic hash (public) — gitleaks:allow
+  OwnershipHandoverRequested: '0xdbf36a107da19e49527a7176a1babf963b4b0ff8cde35ee35d6cd8f1f9ac7e1d', // event topic hash (public) — gitleaks:allow
 };
+
+// FWAConfigKeys: the owner's tunable knobs, keyed by the uint in ConfigSet(key, value).
+// fmt renders the raw uint the way a human reads that knob.
+const fmtBps = (v) => { const p = Number(v) / 100; return (Number.isInteger(p) ? p : p.toFixed(2)) + '%'; };
+const fmtSecs = (v) => { const s = Number(v); return s % 86400 === 0 ? s / 86400 + 'd' : s % 3600 === 0 ? s / 3600 + 'h' : s + 's'; };
+const fmtSwitch = (v) => (v === 0n ? 'OFF' : 'ON');
+export const CONFIG_KEYS = {
+  1: { label: 'VRF callback gas', fmt: (v) => fmtNum(v) },
+  2: { label: 'VRF subscription', fmt: () => 'rotated' },
+  7: { label: 'VRF confirmations', fmt: (v) => v.toString() },
+  10: { label: 'max activations / pull', fmt: (v) => v.toString() },
+  11: { label: 'selection timeout', fmt: (v) => v.toString() + ' blocks' },
+  12: { label: 'max pulls / tx', fmt: (v) => v.toString() },
+  13: { label: 'pull surcharge', fmt: fmtBps },
+  14: { label: 'selection slippage', fmt: fmtBps },
+  15: { label: 'top-pot share of pulls', fmt: fmtBps },
+  16: { label: 'top takeover threshold', fmt: (v) => '+' + fmtBps(v) },
+  17: { label: 'sell-back payout', fmt: fmtBps },
+  18: { label: 'owner cut of pulls', fmt: fmtBps },
+  19: { label: 'owner cut of sell-backs', fmt: fmtBps },
+  20: { label: 'winner settlement window', fmt: fmtSecs },
+  21: { label: 'finalize window', fmt: fmtSecs },
+  22: { label: 'min deposit backing', fmt: (v) => fmtEth(v) + ' ETH' },
+  23: { label: 'protocol fees → FWA token', fmt: fmtBps },
+  24: { label: 'VRF key hash', fmt: () => 'rotated' },
+  25: { label: 'staging queue cap', fmt: (v) => (v === 0n ? 'unlimited' : v.toString()) },
+  40: { label: 'retained slice → protocol', fmt: fmtSwitch },
+  41: { label: 'pulls enabled', fmt: fmtSwitch },
+  42: { label: 'withdraw-only mode', fmt: fmtSwitch },
+  43: { label: 'deposit whitelist', fmt: fmtSwitch },
+  44: { label: 'sell-back as FWA tokens', fmt: fmtSwitch },
+  60: { label: 'VRF coordinator', fmt: () => 'rotated' },
+  61: { label: 'payout address', fmt: (v) => shortAddr('0x' + v.toString(16).padStart(40, '0')) },
+  62: { label: 'whitelist manager', fmt: (v) => (v === 0n ? 'revoked' : shortAddr('0x' + v.toString(16).padStart(40, '0'))) },
+};
+export function describeConfig(key, value) {
+  const k = CONFIG_KEYS[key];
+  if (!k) return 'config key ' + key + ' = ' + value.toString();
+  return k.label + ' → ' + k.fmt(value);
+}
 
 // URL-safe base64 for GET-cacheable requests (matches Node's 'base64url').
 function base64url(str) {
@@ -551,6 +607,14 @@ export function describeLog(log) {
       return { name: 'Top pot paid', badge: 'primary', parts: [fmtEth(dataWord(0)) + ' ETH → ', A(topicAddr(t[2]))] };
     case TOPICS.FeesPaidOut:
       return { name: 'Fees paid', badge: 'secondary', parts: [fmtEth(dataWord(0)) + ' ETH → ', A(topicAddr(t[1]))] };
+    case TOPICS.ConfigSet:
+      return { name: 'Rule change', badge: 'danger', parts: [describeConfig(topicNum(t[1]), dataWord(0))] };
+    case TOPICS.CollectionWhitelistSet:
+      return { name: 'Whitelist', badge: 'danger', parts: [A(topicAddr(t[1])), dataWord(0) === 0n ? ' removed' : ' allowed'] };
+    case TOPICS.OwnershipTransferred:
+      return { name: 'New owner', badge: 'danger', parts: ['ownership → ', A(topicAddr(t[2]))] };
+    case TOPICS.OwnershipHandoverRequested:
+      return { name: 'Handover ask', badge: 'danger', parts: [A(topicAddr(t[1])), ' requested ownership'] };
     default:
       return { name: 'Event', badge: 'secondary', parts: [shortHash(t[0])] };
   }
