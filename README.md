@@ -151,6 +151,12 @@ on every refresh — safe to close and reopen anytime.
   land in the main activity feed.
 - **Allowed Collections** — deposits are whitelist-gated; the card lists the
   allowed collections by name (snapshot + live overlay).
+- **FWA Token Emission** — the rewards module's 15-day emission window as a
+  countdown + progress bar (goes red under 3 days), the depositor rate
+  (√backing-weighted) and the daily puller pot, read live from the module
+  the pool points at.
+- **Contracts & Keys** — who holds what: owner, fee payout, whitelist
+  manager, and the pool / token / rewards / VRF-service contract addresses.
 
 Note: the node caps `eth_getLogs` at 20k results per call, so wide log windows
 are fetched in range chunks (see `Dashboard.refreshLogs`).

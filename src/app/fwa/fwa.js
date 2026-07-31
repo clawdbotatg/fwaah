@@ -138,6 +138,15 @@ export const SELECTORS = {
   owner: '0x8da5cb5b',
   payoutAddress: '0x5b8d02d7',
   collectionWhitelisted: '0x666cd313', // collectionWhitelisted(address)
+  token: '0xfc0c546a',
+  rewards: '0x9ec5a894',
+  vrfService: '0x59749e94',
+  // FWARewards views — call with ethCallTo(rewardsAddr, …)
+  emissionStart: '0x513da948',
+  emissionDuration: '0x2d9c4dd2', // EMISSION_DURATION()
+  depositorRatePerSec: '0xd2b48fff',
+  purchaserDailyPot: '0xfb894e65',
+  totalSupply: '0x18160ddd', // on the FWA token
   // pull-panel reads
   quoteAcquisitionPrice: '0x987df4cd',
   settlementDiscountBps: '0xfb2dd096',

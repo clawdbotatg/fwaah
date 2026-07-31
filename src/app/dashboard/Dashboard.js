@@ -9,7 +9,7 @@ import MyDeposits from './MyDeposits';
 import FwaAddress from '../fwa/FwaAddress';
 import {
   FWA_ADDRESS, ETHERSCAN, SELECTORS, TOPICS,
-  rpcBatch, ethCall, toBig, toNum, word, wordAddr, topicNum,
+  rpcBatch, ethCall, ethCallTo, toBig, toNum, word, wordAddr, topicNum,
   fmtEth, fmtNum, fmtAge, shortAddr, describeLog, openSeaUrl,
   fetchListingArt, POLL,
 } from '../fwa/fwa';
@@ -37,6 +37,7 @@ const KNOB_SNAPSHOT = {
   whitelistEnabled: true,
   sellBackAsTokens: true,
   maxPullsPerTx: 5n,
+  whitelistManager: '0x854352b275cf6a0dffcf2983c986fbe9345e17c3', // set at block 25546799
 };
 
 // Collections allowed to deposit (CollectionWhitelistSet history to block
@@ -126,6 +127,7 @@ export class Dashboard extends Component {
     fwa: null,
     topListing: null,
     topArt: null,
+    emission: null,
     hourly: null,
     outcomes: null,
     feed: [],
@@ -159,7 +161,7 @@ export class Dashboard extends Component {
         'ownerAcquisitionFeeBps', 'ownerSettlementFeeBps',
         'topListingShareBps', 'topThresholdBps', 'retainedToProtocol',
       ];
-      const addrKeys = ['owner', 'payoutAddress'];
+      const addrKeys = ['owner', 'payoutAddress', 'token', 'rewards', 'vrfService'];
       const calls = keys.map((k) => ethCall(SELECTORS[k]))
         .concat(addrKeys.map((k) => ethCall(SELECTORS[k])));
       calls.push(['eth_getBalance', [FWA_ADDRESS, 'latest']]);
@@ -181,11 +183,33 @@ export class Dashboard extends Component {
         };
       }
 
+      // FWAToken emission schedule from the rewards module (zero address = not wired)
+      let emission = null;
+      if (fwa.rewards && !/^0x0{40}$/.test(fwa.rewards)) {
+        try {
+          const [startH, durH, rateH, potH, supplyH] = await rpcBatch([
+            ethCallTo(fwa.rewards, SELECTORS.emissionStart),
+            ethCallTo(fwa.rewards, SELECTORS.emissionDuration),
+            ethCallTo(fwa.rewards, SELECTORS.depositorRatePerSec),
+            ethCallTo(fwa.rewards, SELECTORS.purchaserDailyPot),
+            ethCallTo(fwa.token, SELECTORS.totalSupply),
+          ]);
+          emission = {
+            start: toNum(startH),
+            duration: toNum(durH),
+            ratePerSec: toBig(rateH),
+            dailyPot: toBig(potH),
+            supply: toBig(supplyH),
+          };
+        } catch (e) { /* module views are decoration */ }
+      }
+
       this.setState({
         error: null,
         lastUpdated: new Date(),
         fwa: { ...fwa, balance },
         topListing,
+        emission,
       });
 
       // top listing art (cached after the first hit; cheap to re-ask)
@@ -295,6 +319,7 @@ export class Dashboard extends Component {
         else if (key === 43) knobs.whitelistEnabled = value !== 0n;
         else if (key === 44) knobs.sellBackAsTokens = value !== 0n;
         else if (key === 12) knobs.maxPullsPerTx = value;
+        else if (key === 62) knobs.whitelistManager = wordAddr(log.data, 0);
       } else if (log.topics[0] === TOPICS.CollectionWhitelistSet) {
         const addr = wordAddr(log.topics[1], 0);
         if (word(log.data, 0) === 0n) wl.delete(addr);
@@ -314,7 +339,15 @@ export class Dashboard extends Component {
   }
 
   render() {
-    const { fwa, topListing, topArt, hourly, outcomes, feed, error, lastUpdated, knobs, whitelist, adminFeed } = this.state;
+    const { fwa, topListing, topArt, emission, hourly, outcomes, feed, error, lastUpdated, knobs, whitelist, adminFeed } = this.state;
+
+    // emission countdown (rendered fresh each stats poll — minute precision is plenty)
+    const nowS = Date.now() / 1000;
+    const emEnd = emission && emission.start ? emission.start + emission.duration : null;
+    const emLeftS = emEnd !== null ? Math.max(0, emEnd - nowS) : null;
+    const emPct = emission && emission.start && emEnd
+      ? Math.min(100, Math.round((nowS - emission.start) / emission.duration * 100)) : null;
+    const fmtDh = (s) => (s >= 86400 ? Math.floor(s / 86400) + 'd ' : '') + Math.floor((s % 86400) / 3600) + 'h';
 
     const backlog = fwa ? Number(fwa.lastIssuedSequence - fwa.nextSequenceToProcess + 1n) : 0;
     const invariantOk = fwa ? fwa.totalWeight === fwa.treeRootWeight : null;
@@ -687,6 +720,92 @@ export class Dashboard extends Component {
                     ))}
                   </ul>
                 </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* token emission + contracts & keys */}
+        <div className="row">
+          <div className="col-lg-7 grid-margin stretch-card">
+            <div className="card">
+              <div className="card-body">
+                <h4 className="card-title"><i className="mdi mdi-fire text-danger"></i> FWA Token Emission</h4>
+                {emission && emission.start ? (
+                  <React.Fragment>
+                    <div className="d-flex justify-content-between small mb-1">
+                      <span className="text-muted">
+                        started {new Date(emission.start * 1000).toLocaleDateString()}
+                      </span>
+                      <span className={emLeftS === 0 ? 'text-muted' : emLeftS < 3 * 86400 ? 'text-danger' : 'text-warning'}>
+                        {emLeftS === 0
+                          ? 'emission ended ' + new Date(emEnd * 1000).toLocaleDateString()
+                          : <strong>ends in {fmtDh(emLeftS)} — {new Date(emEnd * 1000).toLocaleString()}</strong>}
+                      </span>
+                    </div>
+                    <div className="progress pull-progress mb-3" style={{ height: 8, maxWidth: 'none' }}>
+                      <div className={'progress-bar ' + (emLeftS < 3 * 86400 ? 'bg-danger' : 'bg-warning')} style={{ width: emPct + '%' }}></div>
+                    </div>
+                    <ul className="list-unstyled mb-0 small">
+                      <li className="d-flex justify-content-between py-1">
+                        <span className="text-muted">depositor emissions</span>
+                        <span>{fmtNum(Math.round(Number(emission.ratePerSec) / 1e18 * 86400))} FWA / day — weighted by √backing</span>
+                      </li>
+                      <li className="d-flex justify-content-between py-1">
+                        <span className="text-muted">puller rewards pot</span>
+                        <span>{fmtNum(Math.round(Number(emission.dailyPot) / 1e18))} FWA / day — split across the day's pulls</span>
+                      </li>
+                      <li className="d-flex justify-content-between py-1">
+                        <span className="text-muted">token supply</span>
+                        <span>{fmtNum(Math.round(Number(emission.supply) / 1e18))} FWA</span>
+                      </li>
+                    </ul>
+                    <p className="text-muted small mb-0 mt-2">
+                      while emission runs, depositing and pulling both earn FWA on top of the ETH game
+                    </p>
+                  </React.Fragment>
+                ) : <p className="text-muted">emission not started (or rewards module unreachable)</p>}
+              </div>
+            </div>
+          </div>
+          <div className="col-lg-5 grid-margin stretch-card">
+            <div className="card">
+              <div className="card-body">
+                <h4 className="card-title"><i className="mdi mdi-key-variant text-warning"></i> Contracts &amp; Keys</h4>
+                <ul className="list-unstyled mb-0 small">
+                  <li className="d-flex justify-content-between py-1 border-bottom">
+                    <span className="text-muted">owner</span>
+                    <span>{fwa ? <FwaAddress address={fwa.owner} size="xs" /> : '—'}</span>
+                  </li>
+                  <li className="d-flex justify-content-between py-1 border-bottom">
+                    <span className="text-muted">fee payout</span>
+                    <span>{fwa ? <FwaAddress address={fwa.payoutAddress} size="xs" /> : '—'}</span>
+                  </li>
+                  <li className="d-flex justify-content-between py-1 border-bottom">
+                    <span className="text-muted">whitelist manager</span>
+                    <span>{knobs.whitelistManager && !/^0x0{40}$/.test(knobs.whitelistManager)
+                      ? <FwaAddress address={knobs.whitelistManager} size="xs" /> : 'revoked'}</span>
+                  </li>
+                  <li className="d-flex justify-content-between py-1 border-bottom">
+                    <span className="text-muted">FWA pool</span>
+                    <a href={ETHERSCAN + '/address/' + FWA_ADDRESS} target="_blank" rel="noopener noreferrer">{shortAddr(FWA_ADDRESS)}</a>
+                  </li>
+                  <li className="d-flex justify-content-between py-1 border-bottom">
+                    <span className="text-muted">FWA token</span>
+                    {fwa ? <a href={ETHERSCAN + '/token/' + fwa.token} target="_blank" rel="noopener noreferrer">{shortAddr(fwa.token)}</a> : '—'}
+                  </li>
+                  <li className="d-flex justify-content-between py-1 border-bottom">
+                    <span className="text-muted">rewards module</span>
+                    {fwa ? <a href={ETHERSCAN + '/address/' + fwa.rewards} target="_blank" rel="noopener noreferrer">{shortAddr(fwa.rewards)}</a> : '—'}
+                  </li>
+                  <li className="d-flex justify-content-between py-1">
+                    <span className="text-muted">VRF service</span>
+                    {fwa ? <a href={ETHERSCAN + '/address/' + fwa.vrfService} target="_blank" rel="noopener noreferrer">{shortAddr(fwa.vrfService)}</a> : '—'}
+                  </li>
+                </ul>
+                <p className="text-muted small mb-0 mt-2">
+                  one EOA owner — no timelock or multisig; every knob on this page is theirs to turn
+                </p>
               </div>
             </div>
           </div>
