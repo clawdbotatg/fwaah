@@ -5,7 +5,7 @@ import {
   toBig, toNum, word, wordAddr, topicNum,
   fmtEth, fmtAge, fetchListingArt, openSeaUrl, POLL,
 } from '../fwa/fwa';
-import { injected, connectWallet, onAccountsChanged, sendTx, waitForReceipt } from '../fwa/wallet';
+import { injected, connectWallet, onAccountsChanged, autoReconnectAllowed, sendTx, waitForReceipt } from '../fwa/wallet';
 import FwaAddress from '../fwa/FwaAddress';
 
 const REFRESH_MS = POLL.account;
@@ -51,6 +51,7 @@ export class PullPanel extends Component {
     // silently reconnect if the wallet is already authorized; retry briefly in
     // case the provider injects after we mount
     const tryReconnect = (attempts) => {
+      if (!autoReconnectAllowed()) return; // user hit disconnect — stay out
       const eth = injected();
       if (eth) {
         eth.request({ method: 'eth_accounts' }).then((accounts) => {

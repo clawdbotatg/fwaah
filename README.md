@@ -100,6 +100,17 @@ Forks don't need Vercel at all: `npm start` against your node, or build with
 
 ## Playing (wallet)
 
+Connect via the **CONNECT button in the navbar** (a chip with your
+address + a disconnect ✕ replaces it once connected — disconnect is
+remembered across reloads). Any connect broadcasts to every panel, so
+deposits/earnings appear without a refresh.
+
+- **Deposit an NFT** — pick a whitelisted collection, paste the tokenId,
+  choose the ETH backing (min shown live). Ownership, whitelist and
+  approval are checked with cheap `eth_call`s first; then approve →
+  `listNFT` with the backing as `msg.value`. (Browsing your NFTs across 61
+  collections would need an indexer — manual entry doesn't.)
+
 The **Pull from the pool** panel uses your injected wallet (MetaMask etc.):
 
 - **PULL** — quotes `acquisitionFee + vrfServiceFee` live (with gas-price

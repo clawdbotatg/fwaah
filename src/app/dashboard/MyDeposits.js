@@ -5,7 +5,7 @@ import {
   toNum, word, wordAddr, topicNum,
   fmtEth, fmtAge, fetchListingArt, openSeaUrl, POLL,
 } from '../fwa/fwa';
-import { injected, onAccountsChanged, sendTx, waitForReceipt } from '../fwa/wallet';
+import { injected, onAccountsChanged, autoReconnectAllowed, sendTx, waitForReceipt } from '../fwa/wallet';
 
 const POLL_MS = POLL.account;
 const CHUNK_BLOCKS = 7200; // 24h per getLogs call — under node range/result caps
@@ -34,6 +34,7 @@ export class MyDeposits extends Component {
       if (account) this.deepScan(account);
     });
     const tryReconnect = (attempts) => {
+      if (!autoReconnectAllowed()) return; // user hit disconnect — stay out
       const eth = injected();
       if (eth) {
         eth.request({ method: 'eth_accounts' }).then((accounts) => {

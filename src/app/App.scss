@@ -698,3 +698,45 @@ body:has(.fwaah-fork-banner) .main-panel {
   max-width: 180px;
   font-size: 0.65rem;
 }
+
+// navbar wallet: loud connect, quiet chip + disconnect once connected
+.navbar-wallet {
+  margin-left: 0.75rem;
+  margin-right: 1rem;
+}
+
+.btn-connect {
+  font-weight: 700;
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+  padding: 6px 16px;
+  white-space: nowrap;
+}
+
+.navbar-wallet-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 20px;
+  padding: 4px 6px 4px 10px;
+}
+
+.navbar-wallet-disconnect {
+  background: none;
+  border: none;
+  color: #6c7293;
+  padding: 0 4px;
+  line-height: 1;
+  cursor: pointer;
+
+  &:hover { color: #fc424a; }
+}
+
+// deposit-an-nft form
+.deposit-card .deposit-row { gap: 0.25rem 0; }
+.deposit-title { min-width: 220px; }
+.deposit-select { max-width: 230px; }
+.deposit-input { max-width: 140px; }
+.deposit-btn { font-weight: 700; letter-spacing: 0.05em; }

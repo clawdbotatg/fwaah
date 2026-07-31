@@ -7,17 +7,49 @@ export function injected() {
   return typeof window !== 'undefined' ? window.ethereum : null;
 }
 
+// Central account fan-out: EVERY connect/disconnect broadcasts to every
+// subscriber, because the provider's own accountsChanged event does NOT
+// reliably fire on the first connect — without this, a panel mounted before
+// the connect click never learns about the account until a reload.
+const accountSubs = new Set();
+let providerWired = false;
+
+function broadcast(accounts) {
+  accountSubs.forEach((h) => { try { h(accounts); } catch (e) { /* one bad sub never blocks the rest */ } });
+}
+
+// "user hit disconnect" survives reloads so we don't silently re-grab the
+// wallet the wallet itself still considers authorized
+const DISCONNECTED_KEY = 'fwaah.walletDisconnected';
+export function autoReconnectAllowed() {
+  try { return !window.localStorage.getItem(DISCONNECTED_KEY); } catch (e) { return true; }
+}
+
 export async function connectWallet() {
   const eth = injected();
   if (!eth) throw new Error('no wallet found — install MetaMask (or any injected wallet)');
   const accounts = await eth.request({ method: 'eth_requestAccounts' });
   if (!accounts || !accounts.length) throw new Error('wallet returned no accounts');
+  try { window.localStorage.removeItem(DISCONNECTED_KEY); } catch (e) { /* private mode */ }
+  broadcast(accounts);
   return accounts[0];
 }
 
+// EIP-1193 has no programmatic disconnect — this forgets the account app-side
+// (all panels clear via the broadcast) and stops future silent reconnects.
+export function disconnectWallet() {
+  try { window.localStorage.setItem(DISCONNECTED_KEY, '1'); } catch (e) { /* private mode */ }
+  broadcast([]);
+}
+
 export function onAccountsChanged(handler) {
+  accountSubs.add(handler);
   const eth = injected();
-  if (eth && eth.on) eth.on('accountsChanged', handler);
+  if (eth && eth.on && !providerWired) {
+    providerWired = true;
+    eth.on('accountsChanged', (accounts) => broadcast(accounts));
+  }
+  return () => accountSubs.delete(handler);
 }
 
 export async function ensureMainnet() {
