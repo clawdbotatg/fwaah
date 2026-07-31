@@ -119,17 +119,24 @@ export class MyDeposits extends Component {
           ethCall(SELECTORS.feeCredit, [account]),
         ]);
         const gone = new Set();
+        const pendingById = {};
         let pendingTotal = 0n;
         items.forEach((it, i) => {
           const raw = res[i];
           if (!raw || word(raw, 10) !== LISTING_ACTIVE
             || wordAddr(raw, 1).toLowerCase() !== account.toLowerCase()) gone.add(it.listingId);
-          else if (res[items.length + i]) pendingTotal += word(res[items.length + i], 0);
+          else if (res[items.length + i]) {
+            const p = word(res[items.length + i], 0);
+            pendingById[it.listingId] = p;
+            pendingTotal += p;
+          }
         });
         const creditRaw = res[items.length * 2];
         if (this.alive && this.state.account === account) {
           this.setState((prev) => ({
-            items: gone.size ? prev.items.filter((it) => !gone.has(it.listingId)) : prev.items,
+            items: prev.items
+              .filter((it) => !gone.has(it.listingId))
+              .map((it) => (pendingById[it.listingId] !== undefined ? { ...it, pending: pendingById[it.listingId] } : it)),
             pendingTotal,
             feeCredit: creditRaw ? word(creditRaw, 0) : prev.feeCredit,
           }));
@@ -236,14 +243,19 @@ export class MyDeposits extends Component {
     }
     if (!fresh.length) return;
 
-    // keep only listings still active and still ours (word1 = depositor)
-    const res = await rpcBatchSafe(fresh.map((f) => ethCall(SELECTORS.listings, [BigInt(f.listingId)])));
+    // keep only listings still active and still ours (word1 = depositor);
+    // pendingFees rides the same batch so tiles can show what each earned
+    const res = await rpcBatchSafe([
+      ...fresh.map((f) => ethCall(SELECTORS.listings, [BigInt(f.listingId)])),
+      ...fresh.map((f) => ethCall(SELECTORS.pendingFees, [BigInt(f.listingId)])),
+    ]);
     const live = [];
     fresh.forEach((f, i) => {
       const raw = res[i];
       if (raw && word(raw, 10) === LISTING_ACTIVE
         && wordAddr(raw, 1).toLowerCase() === account.toLowerCase()) {
-        live.push({ ...f, backing: word(raw, 5) });
+        const pendRaw = res[fresh.length + i];
+        live.push({ ...f, backing: word(raw, 5), pending: pendRaw ? word(pendRaw, 0) : 0n });
       }
     });
     if (!live.length || !this.alive || this.state.account !== account) return;
@@ -314,6 +326,14 @@ export class MyDeposits extends Component {
                         </div>
                       )}
                     <span className="hv-eth mine-eth">{fmtEth(it.backing, 3)} ETH</span>
+                    <span
+                      className={'mine-pl ' + (it.pending > 0n ? 'text-success' : 'text-muted')}
+                      title={'fees this listing has earned so far, on its ' + fmtEth(it.backing, 3) + ' ETH backing'}
+                    >
+                      {it.pending > 0n
+                        ? '+' + fmtEth(it.pending) + ' · ' + (Number(it.pending * 10000n / it.backing) / 100).toFixed(1) + '%'
+                        : '±0'}
+                    </span>
                     <span className="small text-muted">#{it.listingId}</span>
                     <span className="pull-ticker-age">{fmtAge(Math.max(0, (now - it.tsMs) / 1000))} ago</span>
                   </a>

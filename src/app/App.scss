@@ -767,3 +767,10 @@ body:has(.fwaah-fork-banner) .main-panel {
   &:hover { opacity: 1; border-color: #b966e7; }
   &:disabled { opacity: 0.3; cursor: default; }
 }
+
+// per-listing earnings on your-deposits tiles
+.mine-pl {
+  font-size: 0.62rem;
+  line-height: 1.1;
+  white-space: nowrap;
+}
