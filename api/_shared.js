@@ -15,12 +15,14 @@ function blockedHost(hostname) {
   return false;
 }
 
-// Referer/Origin hostnames allowed to use the proxies — our own pages only.
-function allowedReferrer(ref) {
+// Referer/Origin hostnames allowed to use the proxies — the deployment's own
+// pages only. Same-origin (ref host == request host) is the rule, so forks on
+// any custom domain work without touching this; localhost covers dev.
+function allowedReferrer(ref, reqHost) {
   try {
     const h = new URL(ref).hostname.toLowerCase();
-    return h === 'fwaah.com' || h.endsWith('.fwaah.com')
-      || h.endsWith('.vercel.app') // preview deploys
+    const self = String(reqHost || '').toLowerCase().replace(/:\d+$/, '');
+    return (self && h === self)
       || h === 'localhost' || h === '127.0.0.1';
   } catch (e) {
     return false;
@@ -33,7 +35,8 @@ function allowedReferrer(ref) {
 // no headers pass — the edge cache and per-function checks bound that damage.
 function hotlinkBlocked(req) {
   const ref = req.headers.referer || req.headers.origin;
-  return req.headers['sec-fetch-site'] === 'cross-site' || (ref && !allowedReferrer(ref));
+  return req.headers['sec-fetch-site'] === 'cross-site'
+    || (ref && !allowedReferrer(ref, req.headers.host));
 }
 
 // fetch() that re-applies the scheme + private-host checks on every redirect
