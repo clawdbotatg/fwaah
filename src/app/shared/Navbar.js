@@ -82,7 +82,7 @@ class Navbar extends Component {
             <li className="nav-item">
               <button
                 type="button"
-                className={'btn btn-sm ' + (this.state.skillCopied ? 'btn-success' : 'btn-outline-warning')}
+                className={'btn btn-sm text-nowrap ' + (this.state.skillCopied ? 'btn-success' : 'btn-outline-warning')}
                 title="copy the FWAAH agent skill — paste it into your agent (Claude, etc). It explains the game and reads live pool data from /livedatasnapshot.json"
                 onClick={() => this.copySkill()}
               >
