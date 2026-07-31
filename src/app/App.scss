@@ -741,24 +741,6 @@ body:has(.fwaah-fork-banner) .main-panel {
 .deposit-input { max-width: 140px; }
 .deposit-btn { font-weight: 700; letter-spacing: 0.05em; }
 
-// owned-token picker chips
-.deposit-owned { line-height: 2; }
-
-.deposit-chip {
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 14px;
-  color: #e4e6ef;
-  font-size: 0.72rem;
-  padding: 2px 10px;
-  margin: 0 4px 4px 0;
-  cursor: pointer;
-
-  &:hover { border-color: #ffab00; }
-}
-
-.deposit-chip-active {
-  border-color: #ffab00;
-  background: rgba(255, 171, 0, 0.15);
-  color: #ffab00;
-}
+// deposit panel extras
+.deposit-os-link { color: #2081e2; align-self: center; white-space: nowrap; }
+.deposit-os-link:hover { color: #ffffff; text-decoration: none; }
