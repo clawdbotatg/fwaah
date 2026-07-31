@@ -1,0 +1,16 @@
+# FWAAH! — Fake World Assets at home
+
+> Live dashboard for the FWA pool on Ethereum mainnet: deposit a whitelisted NFT with ETH backing, or pay the pull fee for a random NFT from the pool. fwaah.com is an open-source, self-hostable fork-at-home client — it never holds keys; wallets sign everything.
+
+Agents: start with the skill, then poll the snapshot.
+
+## Agent resources
+
+- [Agent skill](https://fwaah.com/skill.md): paste this into your agent (Claude Code skill format, plain markdown). It explains the game's mechanics, the live snapshot's fields, contract addresses, ABIs, selectors, and event topics for going on-chain directly.
+- [Live data snapshot](https://fwaah.com/livedatasnapshot.json): the whole pool state as one pre-decoded JSON document — pool stats, pull price, rules/knobs, emission schedule, whitelist, the Crown. Edge-cached ~60s; poll it freely.
+
+## Reference
+
+- [Official FWA docs](https://www.fwa.fun/docs): the protocol's own documentation (vocabulary: the Crown, crown tithe, hot/cold surcharge split).
+- [Verified core contract source + ABI (Sourcify)](https://sourcify.dev/server/v2/contract/1/0xB276F62DB0ce8CA2Ca5bc522695bE604521eAc1c?fields=sources,abi)
+- [Source of this site (GitHub)](https://github.com/clawdbotatg/fwaah)

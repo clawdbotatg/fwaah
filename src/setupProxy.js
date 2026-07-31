@@ -22,6 +22,9 @@ module.exports = function (app) {
     res.setHeader('Content-Type', upstream.headers.get('content-type') || 'application/octet-stream');
     res.status(upstream.status).send(buf);
   });
+  // Dev twin of api/snapshot.js (prod serves it via the vercel.json rewrite):
+  // the agent-facing live JSON, built against NODE_RPC_URL.
+  app.use('/livedatasnapshot.json', require('../api/snapshot'));
   // Tell the UI where /rpc actually points, so the status bar can show the
   // node's address. Dev-server only — the hosted site never uses /rpc.
   app.use('/rpc-target', (req, res) => {

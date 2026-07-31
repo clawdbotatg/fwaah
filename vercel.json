@@ -1,5 +1,6 @@
 {
   "rewrites": [
+    { "source": "/livedatasnapshot.json", "destination": "/api/snapshot" },
     { "source": "/((?!api/).*)", "destination": "/index.html" }
   ]
 }

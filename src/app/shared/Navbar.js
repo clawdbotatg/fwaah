@@ -5,7 +5,7 @@ import { injected, connectWallet, disconnectWallet, onAccountsChanged, autoRecon
 import FwaAddress from '../fwa/FwaAddress';
 
 class Navbar extends Component {
-  state = { rpcLabel: RPC_LABEL, account: null, connecting: false };
+  state = { rpcLabel: RPC_LABEL, account: null, connecting: false, skillCopied: false };
 
   componentDidMount() {
     this.alive = true;
@@ -41,6 +41,23 @@ class Navbar extends Component {
     document.querySelector('.sidebar-offcanvas').classList.toggle('active');
   }
 
+  // Copy /skill.md — paste it into any agent and it can answer FWA questions,
+  // pulling live pool state from /livedatasnapshot.json (edge-cached).
+  async copySkill() {
+    try {
+      const res = await fetch('/skill.md');
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      await navigator.clipboard.writeText(await res.text());
+      this.setState({ skillCopied: true });
+      clearTimeout(this.skillTimer);
+      this.skillTimer = setTimeout(() => {
+        if (this.alive) this.setState({ skillCopied: false });
+      }, 3000);
+    } catch (e) {
+      window.open('/skill.md', '_blank'); // clipboard blocked — let them copy by hand
+    }
+  }
+
   render() {
     const { account, connecting } = this.state;
     return (
@@ -62,6 +79,17 @@ class Navbar extends Component {
             </li>
           </ul>
           <ul className="navbar-nav navbar-nav-right align-items-center">
+            <li className="nav-item">
+              <button
+                type="button"
+                className={'btn btn-sm ' + (this.state.skillCopied ? 'btn-success' : 'btn-outline-warning')}
+                title="copy the FWAAH agent skill — paste it into your agent (Claude, etc). It explains the game and reads live pool data from /livedatasnapshot.json"
+                onClick={() => this.copySkill()}
+              >
+                <i className="mdi mdi-robot"></i>
+                <span className="d-none d-lg-inline">{this.state.skillCopied ? ' copied — paste into your agent' : ' AGENT SKILL'}</span>
+              </button>
+            </li>
             <li className="nav-item d-none d-lg-block">
               <a className="nav-link" href={abiNinjaUrl(FWA_ADDRESS)} target="_blank" rel="noopener noreferrer" title="poke the contract on abi.ninja">
                 <i className="mdi mdi-magnify"></i>
