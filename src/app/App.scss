@@ -744,3 +744,26 @@ body:has(.fwaah-fork-banner) .main-panel {
 // deposit panel extras
 .deposit-os-link { color: #2081e2; align-self: center; white-space: nowrap; }
 .deposit-os-link:hover { color: #ffffff; text-decoration: none; }
+
+// per-tile withdraw (eject) badge — mirrors the os-badge on the lower corner
+.mine-card .wd-badge {
+  position: absolute;
+  bottom: 8px;
+  right: calc(0.45rem + 6px);
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  color: #b966e7;
+  font-size: 13px;
+  padding: 0;
+  cursor: pointer;
+  opacity: 0.75;
+
+  &:hover { opacity: 1; border-color: #b966e7; }
+  &:disabled { opacity: 0.3; cursor: default; }
+}

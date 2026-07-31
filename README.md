@@ -131,9 +131,11 @@ The **Pull from the pool** panel uses your injected wallet (MetaMask etc.):
   log walk — the newest day paints first, deepening to ~7d in the background
   (2 RPC calls per poll after that; the per-item status sweep runs on the
   slow cadence). The panel also totals your **fee earnings** (withdrawable
-  credit + each listing's pending share) with a **withdraw** button —
-  `claimListingFees` settles pending into credit, then `withdrawEarnings`
-  pays out (two wallet prompts when both are needed).
+  credit + each listing's pending share) with a **withdraw earnings**
+  button — `claimListingFees` settles pending into credit, then
+  `withdrawEarnings` pays out (two wallet prompts when both are needed).
+  Each tile carries an **⏏ eject badge** that calls
+  `withdrawListing(listingId)` — that one NFT and its backing come home.
 
 The wallet signs everything; the app never touches keys. Reads and receipt
 watching go through your own node, and pending wins are rediscovered from logs

@@ -156,6 +156,7 @@ export const SELECTORS = {
   feeCredit: '0x5c584c88', // feeCredit(address)
   pendingFees: '0xa2b93478', // pendingFees(uint256)
   withdrawEarnings: '0xb73c6ce9',
+  withdrawListing: '0xaec6e273', // withdrawListing(uint256) — NFT + backing back to depositor
   claimListingFees: '0xb840cf36', // claimListingFees(uint256[])
   // deposit flow (ERC721 calls go to the collection, listNFT to FWA)
   listNFT: '0x3c61c7aa', // listNFT(address,uint256) payable — backing is msg.value

@@ -9,7 +9,6 @@ import MyDeposits from './MyDeposits';
 import DepositPanel from './DepositPanel';
 import LiveFeed from './LiveFeed';
 import FwaAddress from '../fwa/FwaAddress';
-import leftClaw from '../../assets/images/leftclaw.webp';
 import {
   FWA_ADDRESS, ETHERSCAN, SELECTORS, TOPICS, FEED_TOPICS, ADMIN_TOPICS,
   KNOB_SNAPSHOT, WHITELIST_SNAPSHOT,
@@ -740,13 +739,6 @@ export class Dashboard extends Component {
                 <p className="text-muted small mb-0 mt-2">
                   one EOA owner — no timelock or multisig; every knob on this page is theirs to turn
                 </p>
-                <a
-                  className="built-by mt-3"
-                  href="https://x.com/clawdbotatg"
-                  target="_blank" rel="noopener noreferrer"
-                >
-                  <img src={leftClaw} alt="" className="built-by-claw" /> Built by ClawdBotATG
-                </a>
               </div>
             </div>
           </div>

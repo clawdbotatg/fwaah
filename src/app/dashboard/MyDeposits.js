@@ -186,6 +186,32 @@ export class MyDeposits extends Component {
     }
   }
 
+  // Pull ONE listing out of the pool — the NFT and its backing come home.
+  async withdrawListing(listingId) {
+    const { account } = this.state;
+    if (!account || this.state.txBusy) return;
+    try {
+      this.setState({ txBusy: 'withdrawing #' + listingId, txError: null });
+      const hash = await sendTx({
+        from: account,
+        to: FWA_ADDRESS,
+        data: encodeData(SELECTORS.withdrawListing, [BigInt(listingId)]),
+      });
+      const receipt = await waitForReceipt(hash);
+      if (receipt.status === '0x0') throw new Error('withdraw reverted');
+      if (!this.alive) return;
+      this.lastSweep = 0; // re-total earnings soon
+      this.setState((prev) => ({
+        txBusy: null,
+        items: prev.items.filter((it) => it.listingId !== listingId),
+      }));
+    } catch (e) {
+      if (!this.alive) return;
+      const msg = e && e.code === 4001 ? 'rejected in wallet' : String((e && e.message) || e);
+      this.setState({ txBusy: null, txError: msg });
+    }
+  }
+
   // an <img> whose load errored (burst-choked CDN, transient net) drops its
   // art so the poll retry re-resolves it — never a permanent placeholder
   artFailed(listingId) {
@@ -258,10 +284,10 @@ export class MyDeposits extends Component {
                 type="button"
                 className="btn btn-outline-warning mine-withdraw"
                 disabled={!!txBusy}
-                title="settles pending fees into your credit, then withdraws it (two wallet prompts)"
+                title="your total FEE EARNINGS across all listings — settles pending fees into your credit, then withdraws (two wallet prompts). To pull an NFT itself out, use the ⏏ on its tile."
                 onClick={() => this.withdrawEarnings()}
               >
-                {txBusy ? txBusy + '…' : 'withdraw ' + fmtEth(earned) + ' ETH'}
+                {txBusy ? txBusy + '…' : 'withdraw earnings · ' + fmtEth(earned) + ' ETH'}
               </button>
             )}
             {txError && <div className="small text-danger mine-tx-error">{txError}</div>}
@@ -296,6 +322,15 @@ export class MyDeposits extends Component {
                       <i className="mdi mdi-ship-wheel"></i>
                     </a>
                   )}
+                  <button
+                    type="button"
+                    className="wd-badge"
+                    disabled={!!txBusy}
+                    title={'withdraw THIS listing — #' + it.listingId + ' leaves the pool, NFT + ' + fmtEth(it.backing, 3) + ' ETH backing return to you'}
+                    onClick={() => this.withdrawListing(it.listingId)}
+                  >
+                    <i className="mdi mdi-eject"></i>
+                  </button>
                 </div>
                 );
               })}
