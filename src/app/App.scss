@@ -650,3 +650,11 @@ body:has(.fwaah-fork-banner) .main-panel {
   object-fit: contain;
   image-rendering: pixelated;
 }
+
+// claw icon in the sidebar's Links section
+.sidebar .menu-icon .sidebar-claw {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+  image-rendering: pixelated;
+}

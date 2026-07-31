@@ -1,6 +1,6 @@
 import React, { Component } from 'react';
 import { Link, withRouter } from 'react-router-dom';
-import { FWA_ADDRESS, ETHERSCAN } from '../fwa/fwa';
+import { FWA_ADDRESS, abiNinjaUrl } from '../fwa/fwa';
 
 class Sidebar extends Component {
   render() {
@@ -32,7 +32,7 @@ class Sidebar extends Component {
             <span className="nav-link">Links</span>
           </li>
           <li className="nav-item menu-items">
-            <a className="nav-link" href={ETHERSCAN + '/address/' + FWA_ADDRESS} target="_blank" rel="noopener noreferrer">
+            <a className="nav-link" href={abiNinjaUrl(FWA_ADDRESS, ['quoteAcquisitionPrice', 'acquire_0', 'listings', 'listNFT'])} target="_blank" rel="noopener noreferrer">
               <span className="menu-icon"><i className="mdi mdi-file-document"></i></span>
               <span className="menu-title">Contract</span>
             </a>
@@ -41,6 +41,12 @@ class Sidebar extends Component {
             <a className="nav-link" href={'https://repo.sourcify.dev/contracts/full_match/1/' + FWA_ADDRESS + '/'} target="_blank" rel="noopener noreferrer">
               <span className="menu-icon"><i className="mdi mdi-code-tags"></i></span>
               <span className="menu-title">Verified Source</span>
+            </a>
+          </li>
+          <li className="nav-item menu-items">
+            <a className="nav-link" href="https://x.com/clawdbotatg" target="_blank" rel="noopener noreferrer">
+              <span className="menu-icon"><img className="sidebar-claw" src={require('../../assets/images/leftclaw.webp')} alt="" /></span>
+              <span className="menu-title">Built by ClawdBotATG</span>
             </a>
           </li>
         </ul>
