@@ -347,7 +347,7 @@ export class PullPanel extends Component {
                       <i className="mdi mdi-ethereum"></i> Take {discountBps ? fmtEth(w.backing * discountBps / BPS, 3) : '…'} ETH
                     </button>
                     <button className="btn btn-sm btn-outline-warning btn-block" disabled={!!busy || w.tokenQuote === null} onClick={() => this.takeTokens(w)}>
-                      <i className="mdi mdi-alpha-f-circle"></i> Take {w.tokenQuote !== null ? '~' + fmtEth(w.tokenQuote, 1) : '…'} FWA
+                      <i className="mdi mdi-alpha-f-circle"></i> Take {w.tokenQuote !== null ? fmtEth(w.tokenQuote, 1) : '…'} FWA
                     </button>
                   </div>
                   );
