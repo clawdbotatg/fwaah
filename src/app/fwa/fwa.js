@@ -37,6 +37,7 @@ const POOL_STATIC = {
       whitelistAuthority: '0x0ad3128429242007D58952c65546BA99b9b70146',
       fwairLaunchManager: '0x716486a7bD6B4d7409fC4F8B52f0B23D2BcFac72',
       punkLister: '0xb924048A35160B077A85954A049d5CAc29F23ad1',
+      feeSplitter: '0x1b83eb5d2377150d561c05f0475fccd78c12645b', // OwnerSplitterV2 — routes hook trading fees, 20% to the punk lister
       tokenHook: '0x2C67ebA8A50AF0dB5Fba55F725247a75CbDA6444', // public contract address — gitleaks:allow
     },
   },

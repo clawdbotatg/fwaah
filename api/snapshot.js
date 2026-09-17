@@ -426,7 +426,7 @@ module.exports = async (req, res) => {
         capital: {
           spendableEth: fmtEth(toBig(spendH)), lockedEth: fmtEth(toBig(lockedH)), balanceEth: fmtEth(toBig(balH)),
           purchaseCapacityEthPerBuy: fmtEth(toBig(capH)),
-          fundedBy: Object.fromEntries(Object.entries(inflow).map(([a, v]) => [a === FWA_ADDRESS.toLowerCase() ? 'pool earnings (' + a + ')' : a, fmtEth(v)])),
+          fundedBy: Object.fromEntries(Object.entries(inflow).map(([a, v]) => [a === FWA_ADDRESS.toLowerCase() ? 'pool earnings (' + a + ')' : a === pool.contracts.feeSplitter ? 'trading fees via OwnerSplitterV2 (' + a + ')' : a === v.owner.toLowerCase() ? 'owner (' + a + ')' : a, fmtEth(v)])),
         },
         backingDecay: cfgH ? { everySeconds: Number(word(cfgH, 0)), amountEth: fmtEth(word(cfgH, 1)), floorEth: fmtEth(word(cfgH, 2)) } : null,
       };

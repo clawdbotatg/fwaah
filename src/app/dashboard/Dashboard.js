@@ -1138,7 +1138,7 @@ export class Dashboard extends Component {
                             <span className="text-muted">funded by</span>
                             <span>
                               {Object.entries(lister.inflow).sort((a, b) => (b[1] > a[1] ? 1 : -1)).map(([a, v], i) => (
-                                <span key={a}>{i ? ' · ' : ''}{a === FWA_ADDRESS.toLowerCase() ? 'pool earnings' : a === (fwa ? fwa.owner.toLowerCase() : '') ? 'owner' : <FwaAddress address={a} size="xs" />} {fmtEth(v, 2)}</span>
+                                <span key={a}>{i ? ' · ' : ''}{a === FWA_ADDRESS.toLowerCase() ? 'pool earnings' : a === (fwa ? fwa.owner.toLowerCase() : '') ? 'owner' : a === POOL.contracts.feeSplitter ? 'trading fees' : <FwaAddress address={a} size="xs" />} {fmtEth(v, 2)}</span>
                               ))}
                               {' ETH'}
                             </span>
