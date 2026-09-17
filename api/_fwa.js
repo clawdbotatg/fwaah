@@ -61,6 +61,26 @@ function buildPool(id) {
 }
 const POOLS = { v2: buildPool('v2'), v1: buildPool('v1') };
 
+// token-level facts shared by both pools
+const FWA_TOKEN = '0xa0Df17B5aC76ABaBA36E1450E2cbCd18A620C845';
+const PUNKS_721 = '0x000000000000003607fce1ac9e043a86675c5c2f'; // CryptoPunks 721 wrapper
+const INITIAL_FWA_SUPPLY = 10n ** 27n; // 1B FWA minted at deploy; burns only shrink it
+const TRANSFER_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'; // ERC-20/721 Transfer — gitleaks:allow
+const ZERO_TOPIC = '0x' + '0'.repeat(64);
+// FWAPunkListerV2 views + events (V2 only) — public keccak hashes — gitleaks:allow
+const LISTER_SELECTORS = {
+  lockedCapital: '0x2f86e2b0', spendableCapital: '0xde4a097d', purchaseCapacity: '0xb592e0c6',
+  publicMarketPurchasesEnabled: '0xc0abf507', nextPositionId: '0x899346c7', paused: '0x5c975abb', configuration: '0x6c70bee9',
+};
+const LISTER_TOPICS = {
+  PunkPurchased: '0xc95fbbb2b2b5d79d5eea30ca1c563dd8af4018a13a189d987dedfdf8ff61383b', // gitleaks:allow
+  WrappedPunkDeposited: '0x91200a452433bfcba10e482a32f3c6b80ff4344520058fde60d4021a43d70a25', // gitleaks:allow
+  PositionListed: '0xa4e908016dd25c77bb716cc01f2731681013a7f1266f6646a006fb96296cc73b', // gitleaks:allow
+  PositionExited: '0xc80edd82547f4dcac7cba54a3338657b4d10f55e0f44a36a4b8d1c182d301005', // gitleaks:allow
+  CapitalLocked: '0x0ab1e73b4fbe24bd81c00f49859ce55f65648be9bafb94195658077da0978016', // gitleaks:allow
+  BackingReduced: '0x678d6eded3ce3adfb0c49ab8a81fcc15a1ae8a2e0e22f93d4d9c78f93d66b685', // gitleaks:allow
+};
+
 // ?pool=v1|v2 on the request; V2 is the default
 function poolFromReq(req) {
   const q = String((req.query && req.query.pool) || '').toLowerCase();
@@ -236,5 +256,6 @@ function fmtEth(wei) {
 
 module.exports = {
   POOLS, poolFromReq, SELECTORS, TOPICS, CONFIG_LABELS, applyConfigSet,
+  FWA_TOKEN, PUNKS_721, INITIAL_FWA_SUPPLY, TRANSFER_TOPIC, ZERO_TOPIC, LISTER_SELECTORS, LISTER_TOPICS,
   toBig, toNum, word, wordAddr, decodeString, fmtEth,
 };

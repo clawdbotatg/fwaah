@@ -13,8 +13,8 @@ Two FWA main pools are live and the app drives either one:
 | **V2** (default) | `0x958C41181182e76F221331b2755b77D9e1426A98` | live since 2026-09-16: oracle backing ceiling, daily purchase pauses, 12h crown commitment, separate ETH/FWA cashout rates, buyback-fed rewards epochs |
 | **V1** (legacy) | `0xB276F62DB0ce8CA2Ca5bc522695bE604521eAc1c` | still running with its own listings; emission ended 2026-08-04 |
 
-Switch with `?pool=v1` / `?pool=v2` (sticks in localStorage), the sidebar, or
-the header link. V2 is a separate deployment, not an upgrade — "migrating" is
+V2 is what a bare `fwaah.com` shows; add `?pool=v1` for V1 (bookmarkable, not
+remembered), or use the sidebar / header switch. V2 is a separate deployment, not an upgrade — "migrating" is
 withdraw from one, deposit into the other. Both share the FWA token.
 
 Built on the [Corona React](https://github.com/BootstrapDash/corona-react-free-admin-template)

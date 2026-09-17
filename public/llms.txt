@@ -7,7 +7,7 @@ Agents: start with the skill, then poll the snapshot.
 ## Agent resources
 
 - [Agent skill](https://fwaah.com/skill.md): paste this into your agent (Claude Code skill format, plain markdown). It explains the game's mechanics, the live snapshot's fields, contract addresses, ABIs, selectors, and event topics for going on-chain directly.
-- [Live data snapshot — V2](https://fwaah.com/livedatasnapshot.json): the whole pool state as one pre-decoded JSON document — pool stats, pull price, rules/knobs, oracle ceiling, purchase blackout clock, rewards epochs, whitelist (+ oracle exemptions), the Crown. Edge-cached ~60s; poll it freely.
+- [Live data snapshot — V2](https://fwaah.com/livedatasnapshot.json): the whole pool state as one pre-decoded JSON document — pool stats, pull price, rules/knobs, oracle ceiling, purchase blackout clock, rewards epochs, FWA burn rate, punks in the pool + the Punk lister's purchases, whitelist (+ oracle exemptions), the Crown. Edge-cached ~60s; poll it freely.
 - [Live data snapshot — V1](https://fwaah.com/livedatasnapshot.json?pool=v1): same document for the legacy pool (fixed emission schedule instead of epochs).
 
 ## Reference

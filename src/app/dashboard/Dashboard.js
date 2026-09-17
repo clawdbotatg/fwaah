@@ -12,8 +12,9 @@ import FwaAddress from '../fwa/FwaAddress';
 import {
   FWA_ADDRESS, ETHERSCAN, SELECTORS, TOPICS, FEED_TOPICS, ADMIN_TOPICS,
   KNOB_SNAPSHOT, WHITELIST_SNAPSHOT, ORACLE_EXEMPT_SNAPSHOT,
-  POOL, OTHER_POOL, IS_V2, poolUrl, blackoutState, applyConfigSet, CROWN_COMMITMENT_S,
-  rpcBatch, rpcBatchSafe, ethCall, ethCallTo, toBig, toNum, word, wordAddr, topicNum,
+  POOL, POOLS, OTHER_POOL, IS_V2, poolUrl, blackoutState, applyConfigSet, CROWN_COMMITMENT_S,
+  FWA_TOKEN, PUNKS_721, INITIAL_FWA_SUPPLY, TRANSFER_TOPIC, ZERO_TOPIC, PUNK_LISTER, LISTER_SELECTORS, LISTER_TOPICS,
+  rpcBatch, rpcBatchSafe, ethCall, ethCallTo, toBig, toNum, word, wordAddr, topicNum, topicAddr,
   fmtEth, fmtNum, fmtAge, shortAddr, describeLog, openSeaUrl, abiNinjaUrl,
   fetchListingArt, POLL,
 } from '../fwa/fwa';
@@ -52,13 +53,15 @@ export class Dashboard extends Component {
     oracleExempt: ORACLE_EXEMPT_SNAPSHOT,
     adminFeed: [],
     blackout: blackoutState(),
+    sinks: null, // { burn, punks } — where protocol fees end up: FWA burned, punks bought
   };
 
   componentDidMount() {
     this.refreshStats();
     this.refreshLogs();
+    this.refreshSinks();
     this.statsTimer = setInterval(() => this.refreshStats(), STATS_INTERVAL_MS);
-    this.logsTimer = setInterval(() => this.refreshLogs(), LOGS_INTERVAL_MS);
+    this.logsTimer = setInterval(() => { this.refreshLogs(); this.refreshSinks(); }, LOGS_INTERVAL_MS);
     // the V2 purchase blackout is wall-clock: keep its countdown honest
     if (IS_V2) this.tickTimer = setInterval(() => this.setState({ blackout: blackoutState() }), 5000);
   }
@@ -282,6 +285,79 @@ export class Dashboard extends Component {
     }
   }
 
+  // Fee sinks. Burn: every FWA buyback (the token's own route and V2's
+  // protocol-fee buyback) burns a slice — burns are ERC-20 Transfers to 0x0,
+  // so one topic-filtered scan on the token counts every source. Punks: how
+  // many CryptoPunks the pool custodies, and (V2) what the Punk lister has
+  // bought, deposited and listed — read from its own events since launch.
+  async refreshSinks() {
+    try {
+      const [latestHex] = await rpcBatch([['eth_blockNumber', []]]);
+      const latest = toNum(latestHex);
+      const burnRange = (from, to) => ['eth_getLogs', [{
+        address: FWA_TOKEN, fromBlock: '0x' + from.toString(16), toBlock: '0x' + to.toString(16),
+        topics: [TRANSFER_TOPIC, null, ZERO_TOPIC],
+      }]];
+      // exactly 7 day-sized chunks ending at `latest`, so the last one IS the newest 24h
+      const weekRanges = [];
+      for (let from = Math.max(latest - 7 * DAY_BLOCKS + 1, 0); from <= latest; from += DAY_BLOCKS) {
+        weekRanges.push([from, Math.min(from + DAY_BLOCKS - 1, latest)]);
+      }
+      const calls = [
+        ethCallTo(FWA_TOKEN, SELECTORS.totalSupply),
+        ethCallTo(PUNKS_721, SELECTORS.balanceOf, [FWA_ADDRESS]),
+        ...weekRanges.map(([a, b]) => burnRange(a, b)),
+      ];
+      const listerStart = calls.length;
+      if (PUNK_LISTER) {
+        const lk = ['lockedCapital', 'spendableCapital', 'purchaseCapacity', 'publicMarketPurchasesEnabled', 'nextPositionId', 'paused', 'configuration'];
+        calls.push(...lk.map((k) => ethCallTo(PUNK_LISTER, LISTER_SELECTORS[k])));
+        calls.push(['eth_getBalance', [PUNK_LISTER, 'latest']]);
+        // lister events since the V2 start block, chunked under a home node's ~100k-block getLogs cap
+        for (let from = POOL.deployBlock; from <= latest; from += 90000) {
+          calls.push(['eth_getLogs', [{ address: PUNK_LISTER, fromBlock: '0x' + from.toString(16), toBlock: '0x' + Math.min(from + 89999, latest).toString(16) }]]);
+        }
+      }
+      const res = await rpcBatchSafe(calls);
+      const supply = toBig(res[0]);
+      const punksInPool = res[1] ? Number(word(res[1], 0)) : null;
+      const dayLogs = res[listerStart - 1] || []; // the last range is the newest ~24h
+      const weekLogs = [].concat(...weekRanges.map((_, i) => res[2 + i] || []));
+      const sum = (logs) => logs.reduce((acc, l) => acc + word(l.data, 0), 0n);
+      const bySource = {};
+      weekLogs.forEach((l) => { const a = topicAddr(l.topics[1]).toLowerCase(); bySource[a] = (bySource[a] || 0n) + word(l.data, 0); });
+      const burn = {
+        day: sum(dayLogs), dayCount: dayLogs.length,
+        week: sum(weekLogs), weekCount: weekLogs.length, weekDays: weekRanges.length,
+        supply, burnedToDate: INITIAL_FWA_SUPPLY - supply, bySource,
+      };
+      let lister = null;
+      if (PUNK_LISTER) {
+        let i = listerStart;
+        const g = () => res[i++];
+        const [lockedH, spendH, capH, enabledH, nextH, pausedH, cfgH, balH] = [g(), g(), g(), g(), g(), g(), g(), g()];
+        const logs = [].concat(...res.slice(i).map((x) => x || []));
+        const count = (t) => logs.filter((l) => l.topics[0] === t).length;
+        const bought = logs.filter((l) => l.topics[0] === LISTER_TOPICS.PunkPurchased);
+        const deposited = logs.filter((l) => l.topics[0] === LISTER_TOPICS.WrappedPunkDeposited);
+        const inflow = {};
+        logs.filter((l) => l.topics[0] === LISTER_TOPICS.CapitalLocked).forEach((l) => { const a = topicAddr(l.topics[1]).toLowerCase(); inflow[a] = (inflow[a] || 0n) + word(l.data, 0); });
+        lister = {
+          locked: toBig(lockedH), spendable: toBig(spendH), capacity: toBig(capH), balance: toBig(balH),
+          marketBuysEnabled: toBig(enabledH) === 1n, paused: toBig(pausedH) === 1n,
+          positions: nextH ? Number(word(nextH, 0)) - 1 : null,
+          exited: count(LISTER_TOPICS.PositionExited), listed: count(LISTER_TOPICS.PositionListed),
+          bought: bought.length, boughtEth: sum(bought),
+          deposited: deposited.length, depositedBacking: deposited.reduce((acc, l) => acc + word(l.data, 1), 0n),
+          reductions: count(LISTER_TOPICS.BackingReduced),
+          inflow,
+          decayIntervalS: cfgH ? Number(word(cfgH, 0)) : null, decayAmount: cfgH ? word(cfgH, 1) : null, minBacking: cfgH ? word(cfgH, 2) : null,
+        };
+      }
+      this.setState({ sinks: { burn, punks: { inPool: punksInPool, lister } } });
+    } catch (e) { /* the card just shows its placeholder until the next poll */ }
+  }
+
   async refreshAdmin(latest) {
     const ranges = [];
     // 7d back, or all the way to the baked snapshot when that is older, so the
@@ -332,8 +408,19 @@ export class Dashboard extends Component {
   }
 
   render() {
-    const { fwa, topListing, topArt, emission, rewardsV2, hourly, outcomes, feed, error, lastUpdated, knobs, whitelist, oracleExempt, adminFeed, blackout } = this.state;
+    const { fwa, topListing, topArt, emission, rewardsV2, hourly, outcomes, feed, error, lastUpdated, knobs, whitelist, oracleExempt, adminFeed, blackout, sinks } = this.state;
     const exemptSet = new Set(oracleExempt.map((a) => a.toLowerCase()));
+    // fee sinks
+    const burn = sinks && sinks.burn;
+    const fwaM = (wei) => fmtNum(Math.round(Number(wei) / 1e18));
+    const burnPct = (part, whole) => (whole > 0n ? (Number(part * 1000000n / whole) / 10000).toFixed(part * 100n < whole ? 3 : 2) + '%' : '—');
+    const burnSourceName = (a) => {
+      if (a === FWA_TOKEN.toLowerCase()) return 'FWA token buyback route';
+      if (a === POOLS.v2.contracts.buyback.toLowerCase()) return 'V2 protocol-fee buyback';
+      if (fwa && a === fwa.rewards.toLowerCase()) return 'rewards module';
+      return shortAddr(a);
+    };
+    const lister = sinks && sinks.punks.lister;
 
     // emission countdown (rendered fresh each stats poll — minute precision is plenty)
     const nowS = Date.now() / 1000;
@@ -357,7 +444,8 @@ export class Dashboard extends Component {
 
     // pull EV = harmonic-mean backing; the fee is EV + the owner's surcharge
     const ev = fwa && fwa.totalWeight !== 0n ? fwa.weightedBackingTotal / fwa.totalWeight : null;
-    const surchargePct = ev && ev !== 0n ? Math.round(Number(fwa.acquisitionFee * 10000n / ev - 10000n) / 100) : null;
+    const surchargePct = knobs.pullSurchargeBps ? Number(knobs.pullSurchargeBps) / 100
+      : ev && ev !== 0n ? Math.round(Number(fwa.acquisitionFee * 10000n / ev - 10000n) / 10) / 10 : null;
     // fees split equally per active listing, after the owner + top-pot cuts
     const depositorShare = fwa ? 1 - Number(fwa.ownerAcquisitionFeeBps + fwa.topListingShareBps) / 10000 : 1;
     const perListing24h = dayFees !== null && fwa && fwa.activeListingCount !== 0n
@@ -969,6 +1057,101 @@ export class Dashboard extends Component {
                   <a href={POOL.docs} target="_blank" rel="noopener noreferrer">official {POOL.label} docs</a>
                   {' · '}<a href={poolUrl(OTHER_POOL.id)}>watch {OTHER_POOL.label} instead</a>
                 </p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* where the fees go: FWA burn + punks */}
+        <div className="row">
+          <div className="col-lg-5 grid-margin stretch-card">
+            <div className="card">
+              <div className="card-body">
+                <h4 className="card-title"><i className="mdi mdi-fire text-danger"></i> FWA Burn</h4>
+                <p className="text-muted small mb-2">every buyback burns a slice — all burns are FWA transfers to 0x0, counted here from the token itself (shared by both pools)</p>
+                {burn ? (
+                  <React.Fragment>
+                    <h3 className="mb-0">{fwaM(burn.day)} <small className="text-muted">FWA burned / 24h</small></h3>
+                    <p className="text-muted small mb-3">{fmtNum(burn.dayCount)} burns · {burnPct(burn.day, burn.supply)} of supply per day at this pace</p>
+                    <ul className="list-unstyled mb-0 small">
+                      <li className="d-flex justify-content-between py-1">
+                        <span className="text-muted">last {burn.weekDays}d</span>
+                        <span>{fwaM(burn.week)} FWA · avg {fwaM(burn.week / BigInt(burn.weekDays))} / day</span>
+                      </li>
+                      <li className="d-flex justify-content-between py-1">
+                        <span className="text-muted">total supply now</span>
+                        <span>{fwaM(burn.supply)} FWA</span>
+                      </li>
+                      <li className="d-flex justify-content-between py-1" title="1,000,000,000 FWA were minted at deploy; nothing mints again, so supply only falls">
+                        <span className="text-muted">burned to date</span>
+                        <span>{fwaM(burn.burnedToDate)} FWA · {burnPct(burn.burnedToDate, INITIAL_FWA_SUPPLY)} of the 1B minted</span>
+                      </li>
+                      {Object.entries(burn.bySource).sort((a, b) => (b[1] > a[1] ? 1 : -1)).map(([a, v]) => (
+                        <li key={a} className="d-flex justify-content-between py-1">
+                          <span className="text-muted">{burn.weekDays}d via {burnSourceName(a)}</span>
+                          <span>{fwaM(v)} FWA</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </React.Fragment>
+                ) : <p className="text-muted">scanning burns…</p>}
+              </div>
+            </div>
+          </div>
+          <div className="col-lg-7 grid-margin stretch-card">
+            <div className="card">
+              <div className="card-body">
+                <h4 className="card-title"><i className="mdi mdi-emoticon-cool-outline text-info"></i> Punks</h4>
+                <p className="text-muted small mb-2">
+                  CryptoPunks in the {POOL.label} pool{IS_V2 ? ', and the Punk lister — a protocol strategy that buys punks with 20% of FWA trading fees (plus its own listing earnings) and lists them in the pool' : ''}
+                </p>
+                {sinks ? (
+                  <React.Fragment>
+                    <h3 className="mb-0">{sinks.punks.inPool === null ? '—' : fmtNum(sinks.punks.inPool)} <small className="text-muted">punks in the pool</small></h3>
+                    <p className="text-muted small mb-3">held by the pool contract right now — active, staged and won-but-unsettled</p>
+                    {lister ? (
+                      <ul className="list-unstyled mb-0 small">
+                        <li className="d-flex justify-content-between py-1" title="purchaseAndList(punkId): the lister buys a punk on the CryptoPunks market and lists it — only when public market purchases are switched on">
+                          <span className="text-muted">punks bought on the market</span>
+                          <span>{fmtNum(lister.bought)}{lister.bought ? ' · ' + fmtEth(lister.boughtEth, 2) + ' ETH' : ''} · market buys {lister.marketBuysEnabled ? <span className="text-success">ON</span> : <span className="text-warning">OFF</span>}</span>
+                        </li>
+                        <li className="d-flex justify-content-between py-1" title="wrapped punks handed to the lister by the owner and listed with its capital as backing">
+                          <span className="text-muted">punks deposited by the owner</span>
+                          <span>{fmtNum(lister.deposited)}{lister.deposited ? ' · ' + fmtEth(lister.depositedBacking, 2) + ' ETH backing' : ''}</span>
+                        </li>
+                        <li className="d-flex justify-content-between py-1">
+                          <span className="text-muted">positions</span>
+                          <span>{lister.positions === null ? '—' : fmtNum(lister.positions)} opened · {fmtNum(lister.listed)} listed · {fmtNum(lister.exited)} exited</span>
+                        </li>
+                        <li className="d-flex justify-content-between py-1" title="ETH the lister can spend on the next punk (spendable) vs. what sits behind its live listings (locked); purchase capacity caps one buy">
+                          <span className="text-muted">capital</span>
+                          <span>{fmtEth(lister.spendable, 2)} ETH spendable · {fmtEth(lister.locked, 2)} ETH locked · ≤{fmtEth(lister.capacity, 2)} ETH per buy{lister.paused ? <span className="text-danger"> · PAUSED</span> : ''}</span>
+                        </li>
+                        {lister.decayIntervalS && (
+                          <li className="d-flex justify-content-between py-1" title="the lister walks each punk's backing down on a schedule so it eventually gets pulled; reduceBacking() is public">
+                            <span className="text-muted">backing decay</span>
+                            <span>−{fmtEth(lister.decayAmount, 2)} ETH every {fmtAge(lister.decayIntervalS)} toward a {fmtEth(lister.minBacking, 2)} ETH floor · {fmtNum(lister.reductions)} cuts so far</span>
+                          </li>
+                        )}
+                        {Object.keys(lister.inflow).length > 0 && (
+                          <li className="d-flex justify-content-between py-1" title="CapitalLocked events: who has funded the lister since launch">
+                            <span className="text-muted">funded by</span>
+                            <span>
+                              {Object.entries(lister.inflow).sort((a, b) => (b[1] > a[1] ? 1 : -1)).map(([a, v], i) => (
+                                <span key={a}>{i ? ' · ' : ''}{a === FWA_ADDRESS.toLowerCase() ? 'pool earnings' : a === (fwa ? fwa.owner.toLowerCase() : '') ? 'owner' : <FwaAddress address={a} size="xs" />} {fmtEth(v, 2)}</span>
+                              ))}
+                              {' ETH'}
+                            </span>
+                          </li>
+                        )}
+                        <li className="py-1 text-muted">
+                          <a href={abiNinjaUrl(PUNK_LISTER, ['positions', 'spendableCapital', 'purchaseCapacity'])} target="_blank" rel="noopener noreferrer">Punk lister contract</a>
+                          {' · '}<a href="https://www.fwa.fun/punks" target="_blank" rel="noopener noreferrer">fwa.fun/punks</a>
+                        </li>
+                      </ul>
+                    ) : (IS_V2 ? <p className="text-muted small mb-0">lister unreachable</p> : <p className="text-muted small mb-0">the Punk lister strategy only runs on V2 — <a href={poolUrl('v2')}>switch</a></p>)}
+                  </React.Fragment>
+                ) : <p className="text-muted">counting punks…</p>}
               </div>
             </div>
           </div>

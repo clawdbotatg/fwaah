@@ -23,7 +23,7 @@ class Sidebar extends Component {
             <span className="nav-link">Monitor</span>
           </li>
           <li className={this.props.location.pathname === '/' ? 'nav-item menu-items active' : 'nav-item menu-items'}>
-            <Link className="nav-link" to="/">
+            <Link className="nav-link" to={{ pathname: '/', search: this.props.location.search }}>
               <span className="menu-icon"><i className="mdi mdi-speedometer"></i></span>
               <span className="menu-title">Dashboard</span>
             </Link>

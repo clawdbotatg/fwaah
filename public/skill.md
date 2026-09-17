@@ -17,7 +17,7 @@ mechanics, then the live data feed, then everything needed to read the chain.
 | core contract | `0x958C41181182e76F221331b2755b77D9e1426A98` | `0xB276F62DB0ce8CA2Ca5bc522695bE604521eAc1c` |
 | live since | 2026-09-16 16:00 UTC (deployed from block 25944480) | 2026-07-16 (block 25546793) |
 | snapshot | `https://fwaah.com/livedatasnapshot.json` | `https://fwaah.com/livedatasnapshot.json?pool=v1` |
-| dashboard | `https://fwaah.com/` | `https://fwaah.com/?pool=v1` |
+| dashboard | `https://fwaah.com/` (bare URL is always V2) | `https://fwaah.com/?pool=v1` |
 | official site | fwa.fun | v1.fwa.fun |
 
 V2 is a **separate deployment, not an upgrade**: V1 keeps running with its own
@@ -61,6 +61,8 @@ server builds it against your `NODE_RPC_URL`), e.g. `http://localhost:3000/lived
 | `purchaseBlackout` (V2) | `active`, `secondsToChange`, `changesAt` — the daily 11:45–12:00 / 23:45–00:00 UTC pauses on NEW purchases |
 | `rewards` (V2) | epoch number/start/end, this epoch's puller pot + pull count + FWA per pull, previous epoch, Σ√backing depositor weight, FWA held by the module, ETH queued for FWA buys, builder share, the protocol-fee buyback's params (`protocolFeeBuyback`) |
 | `emission` (V1) | the fixed 15-day emission: start/end ISO timestamps, `secondsRemaining`, `ended` (it ended 2026-08-04), FWA/day rates, supply, buyback pool ETH. `null` on V2 |
+| `fwaBurn` | **FWA burn rate** (token-level, same on both pools): `burned24hFwa`, `burns24h`, `burned7dFwa`, `avgPerDay7dFwa`, `totalSupplyFwa`, `burnedToDateFwa` vs the 1B `initialSupplyFwa`, `burnedToDatePctOfInitial`, `pace24hPctOfSupply`, `burned7dBySource` (token buyback route vs V2 protocol-fee buyback) |
+| `punks` | `inPool` = CryptoPunks the pool custodies now; V2 adds `lister` — the Punk lister strategy: `punksBoughtOnMarket` (+ ETH), `punksDepositedByOwner` (+ backing), `recentPunks`, positions opened/listed/exited, `capital` (spendable / locked / per-buy capacity / who funded it), `backingDecay`, `marketBuysEnabled`, `paused` |
 | `whitelist` | `enabled` flag + the full list of collections allowed to deposit, `{address, name}`; V2 adds `oracleExempt` per collection and as a list |
 
 ## How the game works (mechanics — both pools unless marked V2)
@@ -123,6 +125,17 @@ server builds it against your `NODE_RPC_URL`), e.g. `http://localhost:3000/lived
   allowance — no cost to puller or depositor.
 - **Emission (V1):** a fixed 15-day window (ended 2026-08-04) streamed FWA to
   depositors (√backing) and a daily puller pot. Its core ETH game continues.
+- **Burn:** every FWA buyback burns a slice (20% on the token's own route and
+  on V2's protocol-fee buyback), as ERC-20 transfers to 0x0. 1,000,000,000 FWA
+  were minted at deploy and nothing mints again, so supply only falls —
+  `fwaBurn` has the 24h/7d pace and the running total.
+- **Punk lister (V2):** a protocol strategy contract (`FWAPunkListerV2`)
+  funded by 20% of FWA trading fees, its own listing earnings and owner
+  top-ups. It buys CryptoPunks on the punk market (`purchaseAndList`, only
+  while `marketBuysEnabled`) or lists owner-deposited ones, and walks their
+  backing down on a schedule (`backingDecay`) so they eventually get pulled.
+  `punks.lister` is its scorecard; `punks.inPool` counts every punk the pool
+  holds, whoever listed it.
 
 ### Answering common questions
 
@@ -141,6 +154,15 @@ server builds it against your `NODE_RPC_URL`), e.g. `http://localhost:3000/lived
   `commitmentServed`, `commitmentEndsAt`).
 - **"What FWA do pullers earn?"** — V2: `rewards.currentEpochFwaPerPull` (so
   far this epoch) and `previousEpoch.fwaPerPull`. V1: emission ended.
+- **"What's the FWA burn rate?"** — `fwaBurn.burned24hFwa` and
+  `avgPerDay7dFwa`; `pace24hPctOfSupply` for the rate as a share of supply;
+  `burnedToDateFwa` for the running total. Cite `burned7dBySource` when asked
+  where burns come from.
+- **"How many punks has the protocol bought / are in the pool?"** —
+  `punks.inPool` for the pool; `punks.lister.punksBoughtOnMarket` (+
+  `punksDepositedByOwner`) for the lister, with `recentPunks` for the list
+  and `capital` for what it can still spend. Say whether `marketBuysEnabled`
+  is on — if not, every lister punk so far was owner-deposited.
 - **"What's been pulled lately / any big pulls?"** — `recentPulls`, `topPulls24h`.
 - **"How active is the pool / do winners keep or sell?"** — `activity24h`.
 - **"Did the rules change recently?"** — `recentRuleChanges` (tx hashes to cite).

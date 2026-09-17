@@ -83,19 +83,16 @@ function buildPool(id) {
 }
 export const POOLS = { v2: buildPool('v2'), v1: buildPool('v1') };
 
-// Which pool this page load drives: ?pool=v1|v2 (persisted to localStorage,
-// same pattern as ?rpc=) → the saved choice → V2. Switching pools reloads the
-// page (poolUrl), so no component ever has to handle a live address change.
+// Which pool this page load drives: V2 unless the URL says ?pool=v1. It is
+// deliberately NOT remembered (unlike ?rpc=): a bare fwaah.com must always be
+// the current pool, and V1 stays an explicit opt-in you can bookmark.
+// Switching pools reloads the page (poolUrl), so no component ever has to
+// handle a live address change.
 function resolvePoolId() {
   try {
     const q = (new URLSearchParams(window.location.search).get('pool') || '').toLowerCase();
-    if (POOLS[q]) {
-      localStorage.setItem('fwaah_pool', q);
-      return q;
-    }
-    const saved = localStorage.getItem('fwaah_pool');
-    if (POOLS[saved]) return saved;
-  } catch (_) { /* no window/localStorage (tests, api) */ }
+    if (POOLS[q]) return q;
+  } catch (_) { /* no window (tests, api) */ }
   return 'v2';
 }
 export const POOL_ID = resolvePoolId();
@@ -108,14 +105,14 @@ export const KNOB_SNAPSHOT = POOL.knobs;
 export const WHITELIST_SNAPSHOT = POOL.whitelist;
 export const ORACLE_EXEMPT_SNAPSHOT = POOL.oracleExempt;
 
-// same page, other pool — keeps ?rpc= and friends
+// same page, other pool — keeps ?rpc= and friends; V2 is the bare URL
 export function poolUrl(id) {
   try {
     const u = new URL(window.location.href);
-    u.searchParams.set('pool', id);
+    if (id === 'v2') u.searchParams.delete('pool'); else u.searchParams.set('pool', id);
     return u.pathname + u.search + u.hash;
   } catch (_) {
-    return '/?pool=' + id;
+    return id === 'v2' ? '/' : '/?pool=' + id;
   }
 }
 
@@ -139,6 +136,32 @@ export const CROWN_EARLY_EXIT_BPS = 100n;
 
 // V2 oracle ceiling: backing ≤ oracle ask × (1 + premium)
 export const oracleCeiling = (ask, premiumBps) => ask * (10000n + premiumBps) / 10000n;
+
+/* === token-level facts shared by both pools === */
+export const FWA_TOKEN = '0xa0Df17B5aC76ABaBA36E1450E2cbCd18A620C845';
+export const PUNKS_721 = '0x000000000000003607fce1ac9e043a86675c5c2f'; // CryptoPunks 721 wrapper — the punk collection both pools list
+export const INITIAL_FWA_SUPPLY = 10n ** 27n; // 1,000,000,000 FWA minted at deploy (two 500M mints, block 25546793); burns only shrink it
+export const TRANSFER_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'; // ERC-20/721 Transfer — public event hash — gitleaks:allow
+export const ZERO_TOPIC = '0x' + '0'.repeat(64);
+// the Punk lister (V2 only): a protocol strategy funded by 20% of FWA trading
+// fees (via OwnerSplitterV2) + its own listing earnings + owner top-ups; it
+// buys punks (purchaseAndList, gated by publicMarketPurchasesEnabled) or takes
+// admin-deposited ones, lists them in the pool, and decays their backing on a
+// schedule (configuration()). Events are the record of what it bought/listed.
+export const PUNK_LISTER = IS_V2 ? POOL.contracts.punkLister : null;
+export const LISTER_SELECTORS = {
+  lockedCapital: '0x2f86e2b0', unlockedCapital: '0x7e18d27b', spendableCapital: '0xde4a097d', trackedCapital: '0x974031d6',
+  purchaseCapacity: '0xb592e0c6', publicMarketPurchasesEnabled: '0xc0abf507', nextPositionId: '0x899346c7',
+  paused: '0x5c975abb', configuration: '0x6c70bee9', // -> (decayInterval s, decayAmount wei, minimumBacking wei, capitalUnlockPerBlock wei)
+};
+export const LISTER_TOPICS = { // keccak event-signature hashes, public — gitleaks:allow
+  PunkPurchased: '0xc95fbbb2b2b5d79d5eea30ca1c563dd8af4018a13a189d987dedfdf8ff61383b', // (idx positionId, idx punkId, idx seller, price) — gitleaks:allow
+  WrappedPunkDeposited: '0x91200a452433bfcba10e482a32f3c6b80ff4344520058fde60d4021a43d70a25', // (idx positionId, idx punkId, idx contributor, listingId, backing) — gitleaks:allow
+  PositionListed: '0xa4e908016dd25c77bb716cc01f2731681013a7f1266f6646a006fb96296cc73b', // (idx positionId, idx punkId, idx listingId, backing) — gitleaks:allow
+  PositionExited: '0xc80edd82547f4dcac7cba54a3338657b4d10f55e0f44a36a4b8d1c182d301005', // (idx positionId, idx punkId, idx listingId) — gitleaks:allow
+  CapitalLocked: '0x0ab1e73b4fbe24bd81c00f49859ce55f65648be9bafb94195658077da0978016', // (idx source, amount, lockedCapital) — gitleaks:allow
+  BackingReduced: '0x678d6eded3ce3adfb0c49ab8a81fcc15a1ae8a2e0e22f93d4d9c78f93d66b685', // (idx positionId, idx listingId, oldBacking, newBacking) — gitleaks:allow
+};
 
 // RPC endpoint resolution, so a static hosted build works out of the box:
 //   1. ?rpc=<url> query param (persisted to localStorage)

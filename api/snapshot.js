@@ -16,6 +16,7 @@
 
 const {
   POOLS, poolFromReq, SELECTORS, TOPICS, CONFIG_LABELS, applyConfigSet,
+  FWA_TOKEN, PUNKS_721, INITIAL_FWA_SUPPLY, TRANSFER_TOPIC, ZERO_TOPIC, LISTER_SELECTORS, LISTER_TOPICS,
   toBig, toNum, word, wordAddr, decodeString, fmtEth,
 } = require('./_fwa');
 
@@ -364,6 +365,86 @@ module.exports = async (req, res) => {
         if (!ZERO.test(coll)) collectionsSeen.set(p.listingId, { collection: coll, tokenId: word(raw, 3).toString() });
       });
     }
+    // ---- batch 4: fee sinks — FWA burns (Transfer → 0x0 on the token, all
+    //      sources) over 24h/7d, punks in the pool, and (V2) the Punk lister ----
+    const burnRange = (from, to) => ['eth_getLogs', [{ address: FWA_TOKEN, fromBlock: '0x' + from.toString(16), toBlock: '0x' + to.toString(16), topics: [TRANSFER_TOPIC, null, ZERO_TOPIC] }]];
+    const weekRanges = []; // exactly 7 day-sized chunks ending at `latest`; the last one is the newest 24h
+    for (let from = Math.max(latest - 7 * DAY_BLOCKS + 1, 0); from <= latest; from += DAY_BLOCKS) weekRanges.push([from, Math.min(from + DAY_BLOCKS - 1, latest)]);
+    const calls4 = [
+      call(FWA_TOKEN, SELECTORS.totalSupply),
+      call(PUNKS_721, SELECTORS.balanceOf, [FWA_ADDRESS]),
+      ...weekRanges.map(([a, b]) => burnRange(a, b)),
+    ];
+    const listerStart = calls4.length;
+    const LISTER = isV2 ? pool.contracts.punkLister : null;
+    if (LISTER) {
+      ['lockedCapital', 'spendableCapital', 'purchaseCapacity', 'publicMarketPurchasesEnabled', 'nextPositionId', 'paused', 'configuration']
+        .forEach((k) => calls4.push(call(LISTER, LISTER_SELECTORS[k])));
+      calls4.push(['eth_getBalance', [LISTER, 'latest']]);
+      for (let from = pool.deployBlock; from <= latest; from += 90000) {
+        calls4.push(['eth_getLogs', [{ address: LISTER, fromBlock: '0x' + from.toString(16), toBlock: '0x' + Math.min(from + 89999, latest).toString(16) }]]);
+      }
+    }
+    const r4 = await rpc(upstream, calls4, true);
+    const fwaSupply = toBig(r4[0]);
+    const punksInPool = r4[1] ? Number(word(r4[1], 0)) : null;
+    const weekLogs = [].concat(...weekRanges.map((_, i) => r4[2 + i] || []));
+    const dayLogs = r4[listerStart - 1] || [];
+    const sumData0 = (logs) => logs.reduce((acc, l) => acc + word(l.data, 0), 0n);
+    const burnBySource = {};
+    weekLogs.forEach((l) => { const a = topicAddr(l.topics[1]); burnBySource[a] = (burnBySource[a] || 0n) + word(l.data, 0); });
+    const fwaWhole = (wei) => Math.round(Number(wei) / 1e18);
+    const pct = (part, whole) => (whole > 0n ? Number(part * 1000000n / whole) / 10000 : null);
+    let listerOut = null;
+    if (LISTER) {
+      let j = listerStart;
+      const g = () => r4[j++];
+      const [lockedH, spendH, capH, enabledH, nextH, pausedH, cfgH, balH] = [g(), g(), g(), g(), g(), g(), g(), g()];
+      const logs = [].concat(...r4.slice(j).map((x) => x || []));
+      const of = (t) => logs.filter((l) => l.topics[0] === t);
+      const bought = of(LISTER_TOPICS.PunkPurchased);
+      const deposited = of(LISTER_TOPICS.WrappedPunkDeposited);
+      const inflow = {};
+      of(LISTER_TOPICS.CapitalLocked).forEach((l) => { const a = topicAddr(l.topics[1]); inflow[a] = (inflow[a] || 0n) + word(l.data, 0); });
+      listerOut = {
+        note: 'FWAPunkListerV2: a protocol strategy funded by 20% of FWA trading fees (OwnerSplitterV2), its own listing earnings and owner top-ups. It buys punks on the CryptoPunks market (purchaseAndList, only while marketBuysEnabled) or lists owner-deposited ones, then decays their backing on a schedule so they eventually get pulled.',
+        address: LISTER,
+        marketBuysEnabled: toBig(enabledH) === 1n,
+        paused: toBig(pausedH) === 1n,
+        punksBoughtOnMarket: bought.length,
+        punksBoughtOnMarketEth: fmtEth(sumData0(bought)),
+        punksDepositedByOwner: deposited.length,
+        punksDepositedByOwnerBackingEth: fmtEth(deposited.reduce((acc, l) => acc + word(l.data, 1), 0n)),
+        recentPunks: [...bought, ...deposited].slice(-10).reverse().map((l) => ({
+          ...blockMeta(l), punkId: Number(BigInt(l.topics[2])),
+          how: l.topics[0] === LISTER_TOPICS.PunkPurchased ? 'bought on market for ' + fmtEth(word(l.data, 0)) + ' ETH' : 'deposited by owner, listed with ' + fmtEth(word(l.data, 1)) + ' ETH backing',
+        })),
+        positionsOpened: nextH ? Number(word(nextH, 0)) - 1 : null,
+        positionsListed: of(LISTER_TOPICS.PositionListed).length,
+        positionsExited: of(LISTER_TOPICS.PositionExited).length,
+        backingReductions: of(LISTER_TOPICS.BackingReduced).length,
+        capital: {
+          spendableEth: fmtEth(toBig(spendH)), lockedEth: fmtEth(toBig(lockedH)), balanceEth: fmtEth(toBig(balH)),
+          purchaseCapacityEthPerBuy: fmtEth(toBig(capH)),
+          fundedBy: Object.fromEntries(Object.entries(inflow).map(([a, v]) => [a === FWA_ADDRESS.toLowerCase() ? 'pool earnings (' + a + ')' : a, fmtEth(v)])),
+        },
+        backingDecay: cfgH ? { everySeconds: Number(word(cfgH, 0)), amountEth: fmtEth(word(cfgH, 1)), floorEth: fmtEth(word(cfgH, 2)) } : null,
+      };
+    }
+    const fwaBurn = {
+      note: 'every FWA buyback (the token\'s own route and V2\'s protocol-fee buyback) burns a slice; burns are ERC-20 transfers to 0x0 on the token, so this counts every source. Supply only falls — 1,000,000,000 FWA were minted at deploy.',
+      burned24hFwa: fwaWhole(sumData0(dayLogs)),
+      burns24h: dayLogs.length,
+      burned7dFwa: fwaWhole(sumData0(weekLogs)),
+      avgPerDay7dFwa: fwaWhole(sumData0(weekLogs) / BigInt(weekRanges.length)),
+      totalSupplyFwa: fwaWhole(fwaSupply),
+      initialSupplyFwa: 1000000000,
+      burnedToDateFwa: fwaWhole(INITIAL_FWA_SUPPLY - fwaSupply),
+      burnedToDatePctOfInitial: pct(INITIAL_FWA_SUPPLY - fwaSupply, INITIAL_FWA_SUPPLY),
+      pace24hPctOfSupply: pct(sumData0(dayLogs), fwaSupply),
+      burned7dBySource: Object.fromEntries(Object.entries(burnBySource).map(([a, v]) => [a === FWA_TOKEN.toLowerCase() ? 'FWA token buyback route (' + a + ')' : a === POOLS.v2.contracts.buyback.toLowerCase() ? 'V2 protocol-fee buyback (' + a + ')' : a, fwaWhole(v)])),
+    };
+
     const wlName = (addr) => wl.get(addr) || null;
     const finishPull = (p) => {
       const seen = collectionsSeen.get(p.listingId);
@@ -496,6 +577,12 @@ module.exports = async (req, res) => {
       recentDeposits,
       ...(isV2 ? { recentKicks: kickEvents.slice(-10).reverse() } : {}),
       recentRuleChanges,
+      fwaBurn,
+      punks: {
+        inPool: punksInPool,
+        note: 'CryptoPunks (the 721 wrapper ' + PUNKS_721 + ') currently held by this pool: active, staged and won-but-unsettled listings',
+        lister: listerOut,
+      },
       rules: {
         pullSurchargeBps: Number(knobs.pullSurchargeBps),
         sellBackPayoutBps: Number(v.settlementDiscountBps),
