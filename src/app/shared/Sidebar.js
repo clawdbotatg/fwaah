@@ -1,6 +1,6 @@
 import React, { Component } from 'react';
 import { Link, withRouter } from 'react-router-dom';
-import { FWA_ADDRESS, abiNinjaUrl } from '../fwa/fwa';
+import { FWA_ADDRESS, abiNinjaUrl, POOL, POOLS, POOL_ID, poolUrl } from '../fwa/fwa';
 
 class Sidebar extends Component {
   render() {
@@ -29,6 +29,17 @@ class Sidebar extends Component {
             </Link>
           </li>
           <li className="nav-item nav-category">
+            <span className="nav-link">Pool</span>
+          </li>
+          {['v2', 'v1'].map((id) => (
+            <li key={id} className={POOL_ID === id ? 'nav-item menu-items active' : 'nav-item menu-items'}>
+              <a className="nav-link" href={poolUrl(id)} title={POOLS[id].title}>
+                <span className="menu-icon"><i className={'mdi ' + (id === 'v2' ? 'mdi-numeric-2-box' : 'mdi-numeric-1-box-outline')}></i></span>
+                <span className="menu-title">{POOLS[id].label} pool{POOL_ID === id ? ' · watching' : ''}</span>
+              </a>
+            </li>
+          ))}
+          <li className="nav-item nav-category">
             <span className="nav-link">Links</span>
           </li>
           <li className="nav-item menu-items">
@@ -41,6 +52,12 @@ class Sidebar extends Component {
             <a className="nav-link" href={'https://repo.sourcify.dev/contracts/full_match/1/' + FWA_ADDRESS + '/'} target="_blank" rel="noopener noreferrer">
               <span className="menu-icon"><i className="mdi mdi-code-tags"></i></span>
               <span className="menu-title">Verified Source</span>
+            </a>
+          </li>
+          <li className="nav-item menu-items">
+            <a className="nav-link" href={POOL.docs} target="_blank" rel="noopener noreferrer">
+              <span className="menu-icon"><i className="mdi mdi-book-open-variant"></i></span>
+              <span className="menu-title">Official {POOL.label} docs</span>
             </a>
           </li>
           <li className="nav-item menu-items">

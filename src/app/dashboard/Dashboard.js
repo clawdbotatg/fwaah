@@ -11,8 +11,9 @@ import LiveFeed from './LiveFeed';
 import FwaAddress from '../fwa/FwaAddress';
 import {
   FWA_ADDRESS, ETHERSCAN, SELECTORS, TOPICS, FEED_TOPICS, ADMIN_TOPICS,
-  KNOB_SNAPSHOT, WHITELIST_SNAPSHOT,
-  rpcBatch, ethCall, ethCallTo, toBig, toNum, word, wordAddr, topicNum,
+  KNOB_SNAPSHOT, WHITELIST_SNAPSHOT, ORACLE_EXEMPT_SNAPSHOT,
+  POOL, OTHER_POOL, IS_V2, poolUrl, blackoutState, applyConfigSet, CROWN_COMMITMENT_S,
+  rpcBatch, rpcBatchSafe, ethCall, ethCallTo, toBig, toNum, word, wordAddr, topicNum,
   fmtEth, fmtNum, fmtAge, shortAddr, describeLog, openSeaUrl, abiNinjaUrl,
   fetchListingArt, POLL,
 } from '../fwa/fwa';
@@ -23,6 +24,10 @@ const DAY_BLOCKS = 7200; // ~24h of 12s blocks
 
 const ADMIN_SCAN_BLOCKS = 50400; // ~7d
 const ADMIN_CHUNK = 7200;
+const ADMIN_MAX_CHUNKS = 60; // deepest overlay scan (~60d) before pools.json must be regenerated
+const ZERO_ADDR = /^0x0{40}$/;
+const fmtWindow = (s) => (s % 86400 === 0 ? s / 86400 + 'd' : s % 3600 === 0 ? s / 3600 + 'h' : Math.round(s / 60) + 'm');
+const fmtUtc = (ms) => new Date(ms).toISOString().slice(11, 16) + ' UTC';
 
 
 
@@ -37,13 +42,16 @@ export class Dashboard extends Component {
     fwa: null,
     topListing: null,
     topArt: null,
-    emission: null,
+    emission: null, // V1 rewards module (fixed 15-day emission)
+    rewardsV2: null, // V2 rewards module (buyback-fed epochs)
     hourly: null,
     outcomes: null,
     feed: [],
     knobs: KNOB_SNAPSHOT,
     whitelist: WHITELIST_SNAPSHOT,
+    oracleExempt: ORACLE_EXEMPT_SNAPSHOT,
     adminFeed: [],
+    blackout: blackoutState(),
   };
 
   componentDidMount() {
@@ -51,11 +59,14 @@ export class Dashboard extends Component {
     this.refreshLogs();
     this.statsTimer = setInterval(() => this.refreshStats(), STATS_INTERVAL_MS);
     this.logsTimer = setInterval(() => this.refreshLogs(), LOGS_INTERVAL_MS);
+    // the V2 purchase blackout is wall-clock: keep its countdown honest
+    if (IS_V2) this.tickTimer = setInterval(() => this.setState({ blackout: blackoutState() }), 5000);
   }
 
   componentWillUnmount() {
     clearInterval(this.statsTimer);
     clearInterval(this.logsTimer);
+    clearInterval(this.tickTimer);
   }
 
   async refreshStats() {
@@ -65,14 +76,19 @@ export class Dashboard extends Component {
         'pendingAcquisitionCount', 'unsettledAcquisitionCount', 'unfulfilledVrfCount',
         'lastIssuedSequence', 'nextSequenceToProcess', 'topListingId', 'topListingPot',
         'accruedOwnerFees', 'acquisitionEscrowTotal', 'acquisitionRefundCreditTotal',
-        'nextListingId', 'treeRootWeight',
+        'nextListingId',
         // rules-of-the-game knobs with public getters — always live
         'settlementDiscountBps', 'settlementWindow', 'finalizeWindow',
         'ownerAcquisitionFeeBps', 'ownerSettlementFeeBps',
         'topListingShareBps', 'topThresholdBps', 'retainedToProtocol',
         'selectionSlippageBps', 'selectionTimeoutBlocks',
+        // per-pool extras: V2 grew an oracle ceiling, a second cashout rate,
+        // crown tenure and a purchase blackout; V1 exposes its tree root
+        ...(IS_V2
+          ? ['topListingSince', 'tokenSettlementDiscountBps', 'oracleCeilingPremiumBps', 'maxOracleAge', 'minOracleChallengePeriod', 'isPurchaseBlackout']
+          : ['treeRootWeight']),
       ];
-      const addrKeys = ['owner', 'payoutAddress', 'token', 'rewards', 'vrfService'];
+      const addrKeys = ['owner', 'payoutAddress', 'token', 'rewards', ...(IS_V2 ? ['floorOracle', 'fwairLaunchRegistry'] : ['vrfService'])];
       const calls = keys.map((k) => ethCall(SELECTORS[k]))
         .concat(addrKeys.map((k) => ethCall(SELECTORS[k])));
       calls.push(['eth_getBalance', [FWA_ADDRESS, 'latest']]);
@@ -94,9 +110,70 @@ export class Dashboard extends Component {
         };
       }
 
-      // FWAToken emission schedule from the rewards module (zero address = not wired)
+      // rewards module (zero address = not wired). V1: a fixed 15-day emission
+      // with per-second/per-day rates. V2: no schedule at all — FWA arrives
+      // whenever the token's buyback route fires, then splits by √backing
+      // (depositors) and per-24h-epoch pull shares (purchasers).
       let emission = null;
-      if (fwa.rewards && !/^0x0{40}$/.test(fwa.rewards)) {
+      let rewardsV2 = null;
+      if (fwa.rewards && !ZERO_ADDR.test(fwa.rewards) && IS_V2) {
+        try {
+          const [startH, epochH, supplyH, buyingH, allowH, sqrtH, builderH, buybackH, rwBalH] = await rpcBatch([
+            ethCallTo(fwa.rewards, SELECTORS.epochStart),
+            ethCallTo(fwa.rewards, SELECTORS.currentEpoch),
+            ethCallTo(fwa.token, SELECTORS.totalSupply),
+            ethCallTo(fwa.rewards, SELECTORS.isBuying),
+            ethCallTo(fwa.rewards, SELECTORS.tokenBuyAllowanceTotal),
+            ethCallTo(fwa.rewards, SELECTORS.sqrtBackingTotal),
+            ethCallTo(fwa.rewards, SELECTORS.builderRewardBps),
+            ethCallTo(fwa.rewards, SELECTORS.buyback),
+            ethCallTo(fwa.token, SELECTORS.balanceOf, [fwa.rewards]),
+          ]);
+          const epoch = toBig(epochH);
+          const buyback = wordAddr(buybackH, 0);
+          const hasBuyback = !ZERO_ADDR.test(buyback);
+          const calls = [
+            ethCallTo(fwa.rewards, SELECTORS.purchaserEpochPot, [epoch]),
+            ethCallTo(fwa.rewards, SELECTORS.acquisitionsInEpoch, [epoch]),
+            ethCallTo(fwa.rewards, SELECTORS.pendingAcquisitionsInEpoch, [epoch]),
+          ];
+          if (epoch > 0n) {
+            calls.push(
+              ethCallTo(fwa.rewards, SELECTORS.purchaserEpochPot, [epoch - 1n]),
+              ethCallTo(fwa.rewards, SELECTORS.acquisitionsInEpoch, [epoch - 1n]),
+            );
+          }
+          if (hasBuyback) {
+            calls.push(
+              ethCallTo(buyback, SELECTORS.maxEthPerBuy), ethCallTo(buyback, SELECTORS.callerRewardBps),
+              ethCallTo(buyback, SELECTORS.routeDepositorBps), ethCallTo(buyback, SELECTORS.routePurchaserBps),
+              ethCallTo(buyback, SELECTORS.routeBurnBps), ethCallTo(buyback, SELECTORS.paused),
+              ethCallTo(buyback, SELECTORS.lastBuybackBlock), ['eth_getBalance', [buyback, 'latest']],
+            );
+          }
+          const r = await rpcBatchSafe(calls);
+          let i = 0;
+          const pot = toBig(r[i++]);
+          const pulls = toBig(r[i++]);
+          const pending = toBig(r[i++]);
+          const prev = epoch > 0n ? { pot: toBig(r[i++]), pulls: toBig(r[i++]) } : null;
+          let bb = null;
+          if (hasBuyback) {
+            bb = {
+              address: buyback,
+              maxEthPerBuy: toBig(r[i++]), callerRewardBps: toBig(r[i++]),
+              depositorBps: toBig(r[i++]), purchaserBps: toBig(r[i++]), burnBps: toBig(r[i++]),
+              paused: toBig(r[i++]) === 1n, lastBlock: toNum(r[i++]), balance: toBig(r[i++]),
+            };
+          }
+          rewardsV2 = {
+            start: toNum(startH), epoch: Number(epoch), supply: toBig(supplyH),
+            buysOpen: toBig(buyingH) === 1n, allowance: toBig(allowH),
+            sqrtBackingTotal: toBig(sqrtH), builderRewardBps: toBig(builderH), moduleBalance: toBig(rwBalH),
+            pot, pulls, pending, prev, buyback: bb,
+          };
+        } catch (e) { /* module views are decoration */ }
+      } else if (fwa.rewards && !ZERO_ADDR.test(fwa.rewards)) {
         try {
           const [startH, durH, rateH, potH, supplyH, buyingH, buyPoolH] = await rpcBatch([
             ethCallTo(fwa.rewards, SELECTORS.emissionStart),
@@ -125,6 +202,7 @@ export class Dashboard extends Component {
         fwa: { ...fwa, balance },
         topListing,
         emission,
+        rewardsV2,
       });
 
       // top listing art (cached after the first hit; cheap to re-ask)
@@ -206,7 +284,10 @@ export class Dashboard extends Component {
 
   async refreshAdmin(latest) {
     const ranges = [];
-    const start = Math.max(latest - ADMIN_SCAN_BLOCKS, 0);
+    // 7d back, or all the way to the baked snapshot when that is older, so the
+    // knob/whitelist overlay is complete however stale pools.json gets (a 17-day
+    // gap once hid a min-backing cut); capped at ~60d — past that, regenerate
+    const start = Math.max(Math.min(latest - ADMIN_SCAN_BLOCKS, POOL.snapshotBlock + 1), latest - ADMIN_CHUNK * ADMIN_MAX_CHUNKS, 0);
     for (let from = start; from <= latest; from += ADMIN_CHUNK) {
       ranges.push([from, Math.min(from + ADMIN_CHUNK - 1, latest)]);
     }
@@ -224,21 +305,18 @@ export class Dashboard extends Component {
     // overlay the snapshot with anything the scan saw, oldest → newest
     const knobs = { ...KNOB_SNAPSHOT };
     const wl = new Map(WHITELIST_SNAPSHOT);
+    const exempt = new Set(ORACLE_EXEMPT_SNAPSHOT);
     logs.forEach((log) => {
       if (log.topics[0] === TOPICS.ConfigSet) {
-        const key = topicNum(log.topics[1]);
-        const value = word(log.data, 0);
-        if (key === 22) knobs.minBacking = value;
-        else if (key === 41) knobs.pullsEnabled = value !== 0n;
-        else if (key === 42) knobs.withdrawOnly = value !== 0n;
-        else if (key === 43) knobs.whitelistEnabled = value !== 0n;
-        else if (key === 44) knobs.sellBackAsTokens = value !== 0n;
-        else if (key === 12) knobs.maxPullsPerTx = value;
-        else if (key === 62) knobs.whitelistManager = wordAddr(log.data, 0);
+        applyConfigSet(knobs, topicNum(log.topics[1]), word(log.data, 0));
       } else if (log.topics[0] === TOPICS.CollectionWhitelistSet) {
         const addr = wordAddr(log.topics[1], 0);
         if (word(log.data, 0) === 0n) wl.delete(addr);
         else if (!wl.has(addr)) wl.set(addr, shortAddr(addr));
+      } else if (log.topics[0] === TOPICS.OracleExemptionSet) {
+        const addr = wordAddr(log.topics[1], 0);
+        if (word(log.data, 0) === 0n) exempt.delete(addr);
+        else exempt.add(addr);
       }
     });
 
@@ -250,11 +328,12 @@ export class Dashboard extends Component {
       ...describeLog(log),
     }));
 
-    this.setState({ knobs, whitelist: [...wl.entries()], adminFeed });
+    this.setState({ knobs, whitelist: [...wl.entries()], oracleExempt: [...exempt], adminFeed });
   }
 
   render() {
-    const { fwa, topListing, topArt, emission, hourly, outcomes, feed, error, lastUpdated, knobs, whitelist, adminFeed } = this.state;
+    const { fwa, topListing, topArt, emission, rewardsV2, hourly, outcomes, feed, error, lastUpdated, knobs, whitelist, oracleExempt, adminFeed, blackout } = this.state;
+    const exemptSet = new Set(oracleExempt.map((a) => a.toLowerCase()));
 
     // emission countdown (rendered fresh each stats poll — minute precision is plenty)
     const nowS = Date.now() / 1000;
@@ -265,7 +344,14 @@ export class Dashboard extends Component {
     const fmtDh = (s) => (s >= 86400 ? Math.floor(s / 86400) + 'd ' : '') + Math.floor((s % 86400) / 3600) + 'h';
 
     const backlog = fwa ? Number(fwa.lastIssuedSequence - fwa.nextSequenceToProcess + 1n) : 0;
-    const invariantOk = fwa ? fwa.totalWeight === fwa.treeRootWeight : null;
+    const invariantOk = fwa && !IS_V2 ? fwa.totalWeight === fwa.treeRootWeight : null;
+    // V2 crown commitment: 12h of uninterrupted tenure before a free exit
+    const crownHeldS = fwa && IS_V2 && fwa.topListingSince ? Math.max(0, nowS - Number(fwa.topListingSince)) : null;
+    const crownLockLeftS = crownHeldS !== null ? Math.max(0, CROWN_COMMITMENT_S - crownHeldS) : null;
+    // V2 rewards: FWA per pull in the running epoch (pot so far ÷ pulls so far)
+    const fwaPerPull = rewardsV2 && rewardsV2.pulls > 0n ? Number(rewardsV2.pot / rewardsV2.pulls) / 1e18 : null;
+    const prevFwaPerPull = rewardsV2 && rewardsV2.prev && rewardsV2.prev.pulls > 0n ? Number(rewardsV2.prev.pot / rewardsV2.prev.pulls) / 1e18 : null;
+    const epochEndsS = rewardsV2 && rewardsV2.start ? rewardsV2.start + (rewardsV2.epoch + 1) * 86400 : null;
     const dayCount = hourly ? hourly.buckets.reduce((a, b) => a + b.count, 0) : null;
     const dayFees = hourly ? hourly.buckets.reduce((a, b) => a + b.fees, 0) : null;
 
@@ -348,6 +434,10 @@ export class Dashboard extends Component {
               <i className="mdi mdi-cube-outline"></i>
             </span>
             FWA Protocol
+            <span className={'badge ml-2 align-middle ' + (IS_V2 ? 'badge-primary' : 'badge-secondary')} title={POOL.title}>{POOL.label}</span>
+            <a className="small ml-2 align-middle pool-switch" href={poolUrl(OTHER_POOL.id)} title={'this page is watching the ' + POOL.label + ' pool — switch to ' + OTHER_POOL.label}>
+              switch to {OTHER_POOL.label} <i className="mdi mdi-swap-horizontal"></i>
+            </a>
           </h3>
           <nav aria-label="breadcrumb">
             <span className="text-muted d-block">
@@ -386,7 +476,11 @@ export class Dashboard extends Component {
                   </div>
                   <i className="mdi mdi-dice-multiple text-success icon-lg"></i>
                 </div>
-                <p className="text-muted mb-0 mt-3 small">{dayCount !== null ? fmtNum(dayCount) + ' acquisitions / 24h' : '…'}{dayFees !== null ? ' · ' + dayFees.toFixed(2) + ' ETH fees' : ''}</p>
+                <p className="text-muted mb-0 mt-3 small">
+                  {blackout.active
+                    ? <span className="text-warning"><i className="mdi mdi-pause-circle"></i> purchases paused until {fmtUtc(Date.now() + blackout.secondsToChange * 1000)} · {fmtAge(blackout.secondsToChange)} left</span>
+                    : <React.Fragment>{dayCount !== null ? fmtNum(dayCount) + ' acquisitions / 24h' : '…'}{dayFees !== null ? ' · ' + dayFees.toFixed(2) + ' ETH fees' : ''}{IS_V2 && blackout.secondsToChange < 1800 ? <span className="text-warning"> · pause in {fmtAge(blackout.secondsToChange)}</span> : null}</React.Fragment>}
+                </p>
               </div>
             </div>
           </div>
@@ -473,6 +567,14 @@ export class Dashboard extends Component {
                         <ul className="list-unstyled mb-0 small">
                           <li className="mb-2">backing <strong>{fmtEth(topListing.value, 2)} ETH</strong></li>
                           <li className="mb-2">depositor <FwaAddress address={topListing.depositor} size="sm" /></li>
+                          {crownHeldS !== null && (
+                            <li className="mb-2" title="V2 crown commitment: withdrawing or shrinking the crown within 12h of taking it costs 1% of its full backing; being pulled, out-bid or oracle-kicked is free">
+                              held {fmtAge(crownHeldS)}
+                              {crownLockLeftS > 0
+                                ? <span className="text-warning"> · early exit costs 1% for {fmtAge(crownLockLeftS)} more</span>
+                                : <span className="text-success"> · commitment served, free to leave</span>}
+                            </li>
+                          )}
                           <li className="mb-2">token{' '}
                             <a href={ETHERSCAN + '/nft/' + topListing.collection + '/' + topListing.tokenId.toString()} target="_blank" rel="noopener noreferrer">
                               {shortAddr(topListing.collection)} #{topListing.tokenId.toString()}
@@ -496,12 +598,21 @@ export class Dashboard extends Component {
               <div className="card-body">
                 <h4 className="card-title"><i className="mdi mdi-shield-check text-success"></i> Protocol Health</h4>
                 <ul className="list-unstyled mb-0 small">
-                  <li className="d-flex justify-content-between py-2 border-bottom">
-                    <span className="text-muted">Tree invariant</span>
-                    {invariantOk === null ? '—' : invariantOk
-                      ? <span className="badge badge-outline-success">OK</span>
-                      : <span className="badge badge-outline-danger">BROKEN</span>}
-                  </li>
+                  {IS_V2 ? (
+                    <li className="d-flex justify-content-between py-2 border-bottom" title="V2 refuses NEW purchases daily 11:45–12:00 and 23:45–00:00 UTC (fixed in the contract). Settlement, exits and callbacks keep running; over-ceiling listings can be kicked only inside these windows.">
+                      <span className="text-muted">Purchase window</span>
+                      {blackout.active
+                        ? <span className="badge badge-outline-warning">PAUSED · {fmtAge(blackout.secondsToChange)} left</span>
+                        : <span className="badge badge-outline-success">open · next pause in {fmtAge(blackout.secondsToChange)}</span>}
+                    </li>
+                  ) : (
+                    <li className="d-flex justify-content-between py-2 border-bottom">
+                      <span className="text-muted">Tree invariant</span>
+                      {invariantOk === null ? '—' : invariantOk
+                        ? <span className="badge badge-outline-success">OK</span>
+                        : <span className="badge badge-outline-danger">BROKEN</span>}
+                    </li>
+                  )}
                   <li className="d-flex justify-content-between py-2 border-bottom">
                     <span className="text-muted">Unsettled acquisitions</span><span>{fwa ? fmtNum(fwa.unsettledAcquisitionCount) : '—'}</span>
                   </li>
@@ -543,22 +654,34 @@ export class Dashboard extends Component {
                         <span className="text-muted">owner cut of pulls</span>
                         <span>{fwa ? (Number(fwa.ownerAcquisitionFeeBps) / 100) + '%' : '—'}</span>
                       </li>
-                      <li className="d-flex justify-content-between py-1" title="what a winner receives accepting the depositor's standing bid instead of keeping the NFT">
-                        <span className="text-muted">sell-back payout</span>
+                      <li className="d-flex justify-content-between py-1" title="what a winner receives in ETH accepting the depositor's standing bid instead of keeping the NFT — read at settlement time, not locked at allocation">
+                        <span className="text-muted">ETH sell-back payout</span>
                         <span>{fwa ? (Number(fwa.settlementDiscountBps) / 100) + '% of backing' : '—'}</span>
                       </li>
-                      <li className="d-flex justify-content-between py-1" title="the protocol's slice when a winner keeps the NFT and the backing returns to the depositor">
-                        <span className="text-muted">owner cut of sell-backs</span>
+                      {IS_V2 && (
+                        <li className="d-flex justify-content-between py-1" title="V2: taking the bid as FWA spends this share of the backing buying FWA on the shared market — separate from the ETH rate, adjustable 80–95%">
+                          <span className="text-muted">FWA sell-back budget</span>
+                          <span>{fwa ? (Number(fwa.tokenSettlementDiscountBps) / 100) + '% of backing' : '—'}</span>
+                        </li>
+                      )}
+                      <li className="d-flex justify-content-between py-1" title="the protocol's slice of the backing when a winner keeps (or relists) the NFT and the backing returns to the depositor — FWAIR launch listings pay none">
+                        <span className="text-muted">owner cut of kept NFTs</span>
                         <span>{fwa ? (Number(fwa.ownerSettlementFeeBps) / 100) + '%' : '—'}</span>
                       </li>
                       <li className="d-flex justify-content-between py-1" title="the unpaid remainder of the backing on a sell-back — ON means the protocol keeps it, OFF returns it to depositors">
                         <span className="text-muted">retained slice goes to</span>
                         <span>{fwa ? (fwa.retainedToProtocol !== 0n ? 'protocol' : 'depositor') : '—'}</span>
                       </li>
-                      <li className="d-flex justify-content-between py-1" title="floor ETH commitment per deposited NFT — raised from 0.01 at launch">
+                      <li className="d-flex justify-content-between py-1" title="floor ETH commitment per deposited NFT">
                         <span className="text-muted">min deposit backing</span>
                         <span>{fmtEth(knobs.minBacking)} ETH</span>
                       </li>
+                      {IS_V2 && (
+                        <li className="d-flex justify-content-between py-1" title="V2: backing may not exceed the collection's oracle ask plus this premium (ask +10% → a 1 ETH floor allows 1.1 ETH). Listings later found above the ceiling can be kicked during a purchase pause. Oracle-exempt collections and FWAIR launch listings skip it.">
+                          <span className="text-muted">max backing (oracle ceiling)</span>
+                          <span>{fwa ? 'ask +' + (Number(fwa.oracleCeilingPremiumBps) / 100) + '%' : '—'}</span>
+                        </li>
+                      )}
                       <li className="d-flex justify-content-between py-1" title="fee drift tolerance between a pull request and its settlement — drift beyond it converts the pull into a refund credit">
                         <span className="text-muted">settlement slippage</span>
                         <span>{fwa ? '±' + (Number(fwa.selectionSlippageBps) / 100) + '%' : '—'}</span>
@@ -577,12 +700,28 @@ export class Dashboard extends Component {
                       </li>
                       <li className="d-flex justify-content-between py-1" title="the winner's exclusive period to keep the NFT or take the sell-back before the depositor can reclaim">
                         <span className="text-muted">winner's exclusive window</span>
-                        <span>{fwa ? Number(fwa.settlementWindow) / 3600 + 'h' : '—'}</span>
+                        <span>{fwa ? fmtWindow(Number(fwa.settlementWindow)) : '—'}</span>
                       </li>
-                      <li className="d-flex justify-content-between py-1" title="after this, anyone may finalize an abandoned position">
+                      <li className="d-flex justify-content-between py-1" title="after this, anyone may finalize an abandoned position (NFT to the winner, backing less fee to the depositor)">
                         <span className="text-muted">hard finalize deadline</span>
-                        <span>{fwa ? Number(fwa.finalizeWindow) / 86400 + 'd' : '—'}</span>
+                        <span>{fwa ? fmtWindow(Number(fwa.finalizeWindow)) : '—'}</span>
                       </li>
+                      {IS_V2 && (
+                        <React.Fragment>
+                          <li className="d-flex justify-content-between py-1" title="V2: an oracle quote older than this is rejected for deposits/repricing; quotes from a challenge shorter than the minimum period are rejected too">
+                            <span className="text-muted">oracle quote max age / min challenge</span>
+                            <span>{fwa ? fmtWindow(Number(fwa.maxOracleAge)) + ' / ' + fmtWindow(Number(fwa.minOracleChallengePeriod)) : '—'}</span>
+                          </li>
+                          <li className="d-flex justify-content-between py-1" title="fixed in the contract (FWAV2CrownPolicy): leaving or shrinking the crown within 12h of taking it costs 1% of its full backing">
+                            <span className="text-muted">crown commitment</span>
+                            <span>12h · 1% early exit</span>
+                          </li>
+                          <li className="d-flex justify-content-between py-1" title="fixed in the contract: no new purchases in these two daily windows; everything else keeps working and over-ceiling listings can be kicked">
+                            <span className="text-muted">purchase pauses (UTC)</span>
+                            <span>11:45–12:00 · 23:45–00:00</span>
+                          </li>
+                        </React.Fragment>
+                      )}
                       <li className="d-flex justify-content-between py-1" title="blocks the VRF randomness has to land before a pull request can expire into a refund">
                         <span className="text-muted">selection timeout</span>
                         <span>{fwa ? Number(fwa.selectionTimeoutBlocks) + ' blocks' : '—'}</span>
@@ -639,12 +778,20 @@ export class Dashboard extends Component {
                   <ul className="list-unstyled mb-0 small">
                     {whitelist.map(([addr, name]) => (
                       <li key={addr} className="py-1 border-bottom d-flex justify-content-between">
-                        <a href={abiNinjaUrl(addr)} target="_blank" rel="noopener noreferrer">{name}</a>
+                        <span>
+                          <a href={abiNinjaUrl(addr)} target="_blank" rel="noopener noreferrer">{name}</a>
+                          {exemptSet.has(addr.toLowerCase()) && <span className="badge badge-outline-info ml-2" title="oracle-exempt: no floor quote needed, no ceiling, never drift-kicked — fees and min backing still apply">no ceiling</span>}
+                        </span>
                         <span className="text-muted">{shortAddr(addr)}</span>
                       </li>
                     ))}
                   </ul>
                 </div>
+                {IS_V2 && (
+                  <p className="text-muted small mb-0 mt-2">
+                    V2 also needs a valid floor-oracle quote per collection: backing ≤ ask {fwa ? '+' + (Number(fwa.oracleCeilingPremiumBps) / 100) + '%' : ''} — the deposit panel shows each collection's ceiling. Being listed here doesn't mean a quote exists.
+                  </p>
+                )}
               </div>
             </div>
           </div>
@@ -655,8 +802,64 @@ export class Dashboard extends Component {
           <div className="col-lg-7 grid-margin stretch-card">
             <div className="card">
               <div className="card-body">
-                <h4 className="card-title"><i className="mdi mdi-fire text-danger"></i> FWA Token Emission</h4>
-                {emission && emission.start ? (
+                {IS_V2 && (
+                  <React.Fragment>
+                    <h4 className="card-title"><i className="mdi mdi-fire text-danger"></i> FWA Rewards</h4>
+                    {rewardsV2 && rewardsV2.start ? (
+                      <React.Fragment>
+                        <p className="text-muted small mb-2">
+                          no fixed emission in V2 — FWA lands whenever the token's buyback route fires, then splits: depositors by √backing, pullers per 24h epoch
+                        </p>
+                        <ul className="list-unstyled mb-0 small">
+                          <li className="d-flex justify-content-between py-1" title="epochs are 24h from the moment purchases were first enabled, not UTC days; pausing purchases doesn't pause them">
+                            <span className="text-muted">epoch</span>
+                            <span>#{rewardsV2.epoch} · started {new Date(rewardsV2.start * 1000).toLocaleString()}{epochEndsS ? ' · rolls in ' + fmtAge(Math.max(0, epochEndsS - nowS)) : ''}</span>
+                          </li>
+                          <li className="d-flex justify-content-between py-1" title="every successful pull in the epoch earns one equal share of its pot; refunded pulls earn nothing; claim once the epoch closes and every pull in it has resolved">
+                            <span className="text-muted">this epoch's puller pot</span>
+                            <span>{fmtNum(Math.round(Number(rewardsV2.pot) / 1e18))} FWA / {fmtNum(rewardsV2.pulls)} pulls{fwaPerPull !== null ? ' → ≈ ' + fmtNum(Math.round(fwaPerPull)) + ' FWA per pull' : ''}{rewardsV2.pending > 0n ? ' · ' + fmtNum(rewardsV2.pending) + ' pending' : ''}</span>
+                          </li>
+                          {rewardsV2.prev && (
+                            <li className="d-flex justify-content-between py-1">
+                              <span className="text-muted">last epoch</span>
+                              <span>{fmtNum(Math.round(Number(rewardsV2.prev.pot) / 1e18))} FWA / {fmtNum(rewardsV2.prev.pulls)} pulls{prevFwaPerPull !== null ? ' → ≈ ' + fmtNum(Math.round(prevFwaPerPull)) + ' FWA per pull' : ''}</span>
+                            </li>
+                          )}
+                          <li className="d-flex justify-content-between py-1" title="depositor FWA is split by the square root of each active listing's backing — a 4 ETH listing weighs twice a 1 ETH one (ETH fees, by contrast, split equally)">
+                            <span className="text-muted">depositor weight pool (Σ√backing)</span>
+                            <span>{fmtNum(Math.round(Number(rewardsV2.sqrtBackingTotal) / 1e9))} · claim via YOUR DEPOSITS</span>
+                          </li>
+                          <li className="d-flex justify-content-between py-1" title="FWA sitting in the rewards module: unclaimed depositor accruals + open epoch pots">
+                            <span className="text-muted">FWA held for rewards</span>
+                            <span>{fmtNum(Math.round(Number(rewardsV2.moduleBalance) / 1e18))} FWA</span>
+                          </li>
+                          <li className="d-flex justify-content-between py-1" title="part of every pull's surcharge is reserved as an ETH budget the puller (or the app that routed the pull) spends buying FWA — claimAccruedTokens on the rewards module">
+                            <span className="text-muted">ETH queued for FWA buys</span>
+                            <span>{fmtEth(rewardsV2.allowance)} ETH</span>
+                          </li>
+                          <li className="d-flex justify-content-between py-1" title="apps that route pulls through their own contract earn this share of the protocol's cut as an FWA-buy allowance — no cost to the puller or depositor">
+                            <span className="text-muted">builder share of protocol fees</span>
+                            <span>{Number(rewardsV2.builderRewardBps) / 100}%</span>
+                          </li>
+                          {rewardsV2.buyback && (
+                            <li className="d-flex justify-content-between py-1" title="main-pool protocol fees flow to FWAV2Buyback; anyone can call buyback() to swap the ETH for FWA, which is routed depositors / pullers / burn — the caller keeps a tip">
+                              <span className="text-muted">protocol-fee buyback</span>
+                              <span>
+                                {fmtEth(rewardsV2.buyback.balance)} ETH waiting · ≤{fmtEth(rewardsV2.buyback.maxEthPerBuy, 1)} ETH/call · split {Number(rewardsV2.buyback.depositorBps) / 100}/{Number(rewardsV2.buyback.purchaserBps) / 100}/{Number(rewardsV2.buyback.burnBps) / 100}% · tip {Number(rewardsV2.buyback.callerRewardBps) / 100}%
+                                {rewardsV2.buyback.paused ? <span className="text-danger"> · PAUSED</span> : ''}
+                              </span>
+                            </li>
+                          )}
+                        </ul>
+                        <p className="text-muted small mb-0 mt-2">
+                          depositors: claim FWA from YOUR DEPOSITS · pullers: claimEpochTokens once an epoch closes · <a href="https://www.fwa.fun/docs/fwa-rewards" target="_blank" rel="noopener noreferrer">docs</a>
+                        </p>
+                      </React.Fragment>
+                    ) : <p className="text-muted">rewards module unreachable (or epochs not started)</p>}
+                  </React.Fragment>
+                )}
+                {!IS_V2 && <h4 className="card-title"><i className="mdi mdi-fire text-danger"></i> FWA Token Emission</h4>}
+                {!IS_V2 && (emission && emission.start ? (
                   <React.Fragment>
                     <div className="d-flex justify-content-between small mb-1">
                       <span className="text-muted">
@@ -697,7 +900,7 @@ export class Dashboard extends Component {
                       while emission runs, depositing and pulling both earn FWA on top of the ETH game
                     </p>
                   </React.Fragment>
-                ) : <p className="text-muted">emission not started (or rewards module unreachable)</p>}
+                ) : <p className="text-muted">emission not started (or rewards module unreachable)</p>)}
               </div>
             </div>
           </div>
@@ -729,15 +932,42 @@ export class Dashboard extends Component {
                   </li>
                   <li className="d-flex justify-content-between py-1 border-bottom">
                     <span className="text-muted">rewards module</span>
-                    {fwa ? <a href={abiNinjaUrl(fwa.rewards, ['emissionStart', 'pendingDepositorTokens', 'tokenCredit'])} target="_blank" rel="noopener noreferrer">{shortAddr(fwa.rewards)}</a> : '—'}
+                    {fwa ? <a href={abiNinjaUrl(fwa.rewards, IS_V2 ? ['currentEpoch', 'pendingDepositorTokens', 'tokenCredit', 'tokenBuyAllowance'] : ['emissionStart', 'pendingDepositorTokens', 'tokenCredit'])} target="_blank" rel="noopener noreferrer">{shortAddr(fwa.rewards)}</a> : '—'}
                   </li>
-                  <li className="d-flex justify-content-between py-1">
-                    <span className="text-muted">VRF service</span>
-                    {fwa ? <a href={abiNinjaUrl(fwa.vrfService)} target="_blank" rel="noopener noreferrer">{shortAddr(fwa.vrfService)}</a> : '—'}
-                  </li>
+                  {IS_V2 ? (
+                    <React.Fragment>
+                      <li className="d-flex justify-content-between py-1 border-bottom" title="CollectionFloorOracle — anyone can propose a collection floor by escrowing an NFT at an ask + ETH for a bid at 90% of it; if nobody takes either side for the challenge period, the quote is recorded and caps that collection's backing">
+                        <span className="text-muted">floor oracle</span>
+                        {fwa ? <a href={abiNinjaUrl(fwa.floorOracle, ['getFloorRange', 'getChallenge', 'challengePeriod'])} target="_blank" rel="noopener noreferrer">{shortAddr(fwa.floorOracle)}</a> : '—'}
+                      </li>
+                      <li className="d-flex justify-content-between py-1 border-bottom">
+                        <span className="text-muted">fee buyback</span>
+                        <a href={abiNinjaUrl(rewardsV2 && rewardsV2.buyback ? rewardsV2.buyback.address : POOL.contracts.buyback, ['buyback', 'maxEthPerBuy', 'lastBuybackBlock'])} target="_blank" rel="noopener noreferrer">{shortAddr(rewardsV2 && rewardsV2.buyback ? rewardsV2.buyback.address : POOL.contracts.buyback)}</a>
+                      </li>
+                      <li className="d-flex justify-content-between py-1 border-bottom">
+                        <span className="text-muted">VRF service</span>
+                        <a href={abiNinjaUrl(POOL.contracts.vrfService, ['requestFee', 'subscriptionNativeBalance'])} target="_blank" rel="noopener noreferrer">{shortAddr(POOL.contracts.vrfService)}</a>
+                      </li>
+                      <li className="d-flex justify-content-between py-1 border-bottom" title="FWAIR launch registry — recognised launch listings skip the oracle ceiling and the kept-NFT fee">
+                        <span className="text-muted">FWAIR launch manager</span>
+                        {fwa && !ZERO_ADDR.test(fwa.fwairLaunchRegistry) ? <a href={abiNinjaUrl(fwa.fwairLaunchRegistry)} target="_blank" rel="noopener noreferrer">{shortAddr(fwa.fwairLaunchRegistry)}</a> : 'disabled'}
+                      </li>
+                      <li className="d-flex justify-content-between py-1" title="collections implementing IFWAPurchaseCallback get told (via this notifier) when one of their tokens settles">
+                        <span className="text-muted">purchase notifier</span>
+                        <a href={abiNinjaUrl(POOL.contracts.purchaseNotifier)} target="_blank" rel="noopener noreferrer">{shortAddr(POOL.contracts.purchaseNotifier)}</a>
+                      </li>
+                    </React.Fragment>
+                  ) : (
+                    <li className="d-flex justify-content-between py-1">
+                      <span className="text-muted">VRF service</span>
+                      {fwa ? <a href={abiNinjaUrl(fwa.vrfService)} target="_blank" rel="noopener noreferrer">{shortAddr(fwa.vrfService)}</a> : '—'}
+                    </li>
+                  )}
                 </ul>
                 <p className="text-muted small mb-0 mt-2">
-                  one EOA owner — no timelock or multisig; every knob on this page is theirs to turn
+                  one EOA owner — no timelock or multisig; every knob on this page is theirs to turn ·{' '}
+                  <a href={POOL.docs} target="_blank" rel="noopener noreferrer">official {POOL.label} docs</a>
+                  {' · '}<a href={poolUrl(OTHER_POOL.id)}>watch {OTHER_POOL.label} instead</a>
                 </p>
               </div>
             </div>

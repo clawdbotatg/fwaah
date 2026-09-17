@@ -1,13 +1,144 @@
 // FWA contract + node JSON-RPC helpers. Talks to /rpc (proxied to the local eth node).
 
 import { keccak256 } from 'js-sha3';
+import POOL_SNAPSHOTS from './pools.json';
 
-export const FWA_ADDRESS = '0xB276F62DB0ce8CA2Ca5bc522695bE604521eAc1c';
 export const ETHERSCAN = 'https://etherscan.io';
 
 const ENS_REGISTRY = '0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e';
 const SEL_ENS_RESOLVER = '0x0178b8bf'; // resolver(bytes32)
 const SEL_ENS_NAME = '0x691f3431'; // name(bytes32)
+
+/* === the two live main pools ===========================================
+   FWA V2 (purchases live 2026-09-16 16:00 UTC) is a SEPARATE deployment,
+   not an upgrade: V1 keeps running with its own listings, fees and rewards,
+   and the official site lets you migrate by withdrawing from one and
+   depositing into the other. Both share the FWA token + its Uniswap v4 hook.
+   This app drives ONE pool per page load, chosen at boot (below); everything
+   pool-specific hangs off POOL so the rest of the code reads one config. */
+
+// static per-pool facts (addresses from https://www.fwa.fun/docs/v2-deployments
+// and /docs/deployments); the on-chain snapshot (knobs, whitelist, oracle
+// exemptions) lives in pools.json — regenerate with `node scripts/snapshot.mjs`
+const POOL_STATIC = {
+  v2: {
+    id: 'v2',
+    label: 'V2',
+    title: 'FWA V2 main pool',
+    site: 'https://www.fwa.fun',
+    docs: 'https://www.fwa.fun/docs/v2',
+    // everything wired around the pool — the pool's own getters (token,
+    // rewards, floorOracle, fwairLaunchRegistry) are read live; these are the
+    // immutable/constructor ones with no getter, per the official deployments page
+    contracts: {
+      vrfService: '0xCACBd874e24B533935176154E990Bf710F56693A',
+      buyback: '0xaba91665cdf921F0f6B33A099337336B324c9793',
+      purchaseNotifier: '0x612dF3a344990F8E53499ec1bC79Be63cFa496D0',
+      whitelistAuthority: '0x0ad3128429242007D58952c65546BA99b9b70146',
+      fwairLaunchManager: '0x716486a7bD6B4d7409fC4F8B52f0B23D2BcFac72',
+      punkLister: '0xb924048A35160B077A85954A049d5CAc29F23ad1',
+      tokenHook: '0x2C67ebA8A50AF0dB5Fba55F725247a75CbDA6444', // public contract address — gitleaks:allow
+    },
+  },
+  v1: {
+    id: 'v1',
+    label: 'V1',
+    title: 'FWA V1 main pool (legacy, still live)',
+    site: 'https://v1.fwa.fun',
+    docs: 'https://www.fwa.fun/docs/v1',
+    contracts: {
+      vrfService: '0xa084c33Fb7a467307452898b8D58165ebd2E5D9f',
+      whitelistAuthority: '0x54B641aC97A9e9375665934b8e7a7D0b2C0E898B',
+      fwairLaunchManager: '0x900252d9A8F9AcC3DD1014C594c91fC33e5A6AAf',
+      tokenHook: '0x2C67ebA8A50AF0dB5Fba55F725247a75CbDA6444', // public contract address — gitleaks:allow
+    },
+  },
+};
+
+const big = (s) => BigInt(s);
+function buildPool(id) {
+  const snap = POOL_SNAPSHOTS[id];
+  const k = snap.knobs;
+  return {
+    ...POOL_STATIC[id],
+    address: snap.address,
+    deployBlock: snap.deployBlock,
+    snapshotBlock: POOL_SNAPSHOTS.snapshotBlock,
+    // knobs with NO public getter — the latest ConfigSet(key, value) per key,
+    // baked at snapshotBlock; the admin-event overlay keeps them current
+    knobs: {
+      minBacking: big(k.minBacking),
+      pullSurchargeBps: big(k.pullSurchargeBps),
+      maxPullsPerTx: big(k.maxPullsPerTx),
+      protocolFeeToTokenBps: big(k.protocolFeeToTokenBps),
+      pullsEnabled: k.pullsEnabled,
+      withdrawOnly: k.withdrawOnly,
+      whitelistEnabled: k.whitelistEnabled,
+      sellBackAsTokens: k.sellBackAsTokens,
+      whitelistManager: k.whitelistManager,
+    },
+    whitelist: snap.whitelist,
+    oracleExempt: snap.oracleExempt,
+  };
+}
+export const POOLS = { v2: buildPool('v2'), v1: buildPool('v1') };
+
+// Which pool this page load drives: ?pool=v1|v2 (persisted to localStorage,
+// same pattern as ?rpc=) → the saved choice → V2. Switching pools reloads the
+// page (poolUrl), so no component ever has to handle a live address change.
+function resolvePoolId() {
+  try {
+    const q = (new URLSearchParams(window.location.search).get('pool') || '').toLowerCase();
+    if (POOLS[q]) {
+      localStorage.setItem('fwaah_pool', q);
+      return q;
+    }
+    const saved = localStorage.getItem('fwaah_pool');
+    if (POOLS[saved]) return saved;
+  } catch (_) { /* no window/localStorage (tests, api) */ }
+  return 'v2';
+}
+export const POOL_ID = resolvePoolId();
+export const POOL = POOLS[POOL_ID];
+export const IS_V2 = POOL_ID === 'v2';
+export const OTHER_POOL = POOLS[IS_V2 ? 'v1' : 'v2'];
+export const FWA_ADDRESS = POOL.address;
+export const DEPLOY_BLOCK = POOL.deployBlock;
+export const KNOB_SNAPSHOT = POOL.knobs;
+export const WHITELIST_SNAPSHOT = POOL.whitelist;
+export const ORACLE_EXEMPT_SNAPSHOT = POOL.oracleExempt;
+
+// same page, other pool — keeps ?rpc= and friends
+export function poolUrl(id) {
+  try {
+    const u = new URL(window.location.href);
+    u.searchParams.set('pool', id);
+    return u.pathname + u.search + u.hash;
+  } catch (_) {
+    return '/?pool=' + id;
+  }
+}
+
+/* === V2 purchase blackout (fixed in the contract, not a knob) ===
+   New purchases are refused daily 11:45–12:00 and 23:45–00:00 UTC
+   (`block.timestamp % 12h >= 11h45m`). Callbacks, settlement and exits keep
+   working; over-ceiling listings can be kicked ONLY inside these windows. */
+export const BLACKOUT_PERIOD_S = 12 * 3600;
+export const BLACKOUT_START_S = 11 * 3600 + 45 * 60;
+export function blackoutState(nowS = Date.now() / 1000) {
+  if (!IS_V2) return { active: false, secondsToChange: Infinity };
+  const t = Math.floor(nowS) % BLACKOUT_PERIOD_S;
+  const active = t >= BLACKOUT_START_S;
+  return { active, secondsToChange: active ? BLACKOUT_PERIOD_S - t : BLACKOUT_START_S - t };
+}
+
+// V2 crown commitment (FWAV2CrownPolicy — fixed): leaving or shrinking the
+// crown within 12h of taking it costs 1% of the full backing
+export const CROWN_COMMITMENT_S = 12 * 3600;
+export const CROWN_EARLY_EXIT_BPS = 100n;
+
+// V2 oracle ceiling: backing ≤ oracle ask × (1 + premium)
+export const oracleCeiling = (ask, premiumBps) => ask * (10000n + premiumBps) / 10000n;
 
 // RPC endpoint resolution, so a static hosted build works out of the box:
 //   1. ?rpc=<url> query param (persisted to localStorage)
@@ -108,7 +239,9 @@ function pruneRpcCache() {
   rpcCache.forEach((v, k) => { if (v.expires <= now) rpcCache.delete(k); });
 }
 
-// keccak-256 selectors for the FWA view functions we poll
+// keccak-256 selectors for the FWA view functions we poll. Shared by V1 and
+// V2 unless tagged — the V2 core kept V1's getter ABI for indexers and only
+// changed `acquire` (see acquireV2) among the writes this app sends.
 export const SELECTORS = {
   activeListingCount: '0x4681a7c6',
   acquisitionFee: '0x38f5f005',
@@ -121,11 +254,12 @@ export const SELECTORS = {
   nextSequenceToProcess: '0xc4c873e6',
   topListingId: '0xee35bc33',
   topListingPot: '0xba20687b',
+  topListingSince: '0x9360191e', // V2 — crown tenure start (uint64), drives the 12h commitment
   accruedOwnerFees: '0x7b9aa10f',
   acquisitionEscrowTotal: '0x59d973db',
   acquisitionRefundCreditTotal: '0xb5091d48',
   nextListingId: '0xaaccf1ec',
-  treeRootWeight: '0x1b9bc525',
+  treeRootWeight: '0x1b9bc525', // V1 only
   listings: '0xde74e57b',
   tokenURI: '0xc87b56dd', // tokenURI(uint256) — on NFT collections, not on FWA
   name: '0x06fdde03', // name() — on NFT collections, not on FWA
@@ -143,21 +277,68 @@ export const SELECTORS = {
   collectionWhitelisted: '0x666cd313', // collectionWhitelisted(address)
   token: '0xfc0c546a',
   rewards: '0x9ec5a894',
-  vrfService: '0x59749e94',
-  // FWARewards views — call with ethCallTo(rewardsAddr, …)
+  vrfService: '0x59749e94', // V1 only — V2 exposes vrfServiceFee()/vrfCoordinatorAndSubId() instead
+  // V2 core: oracle ceiling, blackout, cashout rates, exemptions
+  tokenSettlementDiscountBps: '0x97d69193', // FWA cashout budget (bps of backing)
+  isPurchaseBlackout: '0x4d5fe14c',
+  floorOracle: '0x29dd24c7',
+  oracleCeilingPremiumBps: '0xedfd4c45',
+  maxOracleAge: '0x7c87a993',
+  minOracleChallengePeriod: '0xf2565bde',
+  oracleExemptCollections: '0xcd9ba024', // oracleExemptCollections(address)
+  canDeposit: '0x4bf0d331', // canDeposit(address) — whitelist decision only
+  fwairListing: '0x9f13336c', // fwairListing(uint256)
+  fwairLaunchRegistry: '0x4146858d',
+  settlementFeeBpsForListing: '0x28899231',
+  vrfServiceFee: '0xff48b8ae',
+  stuckNFTRecipient: '0xf7375a7f', // stuckNFTRecipient(uint256)
+  // FWARewards (V1) views — call with ethCallTo(rewardsAddr, …)
   emissionStart: '0x513da948',
   emissionDuration: '0x2d9c4dd2', // EMISSION_DURATION()
   depositorRatePerSec: '0xd2b48fff',
   purchaserDailyPot: '0xfb894e65',
   totalSupply: '0x18160ddd', // on the FWA token
-  isBuying: '0x24f0aa72', // FWARewards — external FWA buys gate
-  tokenBuyAllowanceTotal: '0xb74d90cd', // FWARewards — ETH queued for FWA buybacks
+  isBuying: '0x24f0aa72', // rewards — raised only inside the module's own FWA buy
+  tokenBuyAllowanceTotal: '0xb74d90cd', // rewards — ETH queued for FWA buys (pullers' allowance + builders)
+  // FWAV2Rewards views — no fixed emission: FWA arrives from buybacks and is
+  // split by √backing (depositors) and per-epoch shares (pullers)
+  epochStart: '0x15e5a1e5',
+  currentEpoch: '0x76671808',
+  purchaserEpochPot: '0x641a875d', // purchaserEpochPot(uint256 epoch)
+  acquisitionsInEpoch: '0x68a9b6ff', // acquisitionsInEpoch(uint256 epoch)
+  pendingAcquisitionsInEpoch: '0xa3cc7a8c',
+  userAcquisitionsInEpoch: '0x31360fc5', // (uint256 epoch, address purchaser)
+  purchaserClaimed: '0xf7cfa1bd', // (uint256 epoch, address purchaser)
+  sqrtBackingTotal: '0xd33e5daa',
+  builderRewardBps: '0x6c1f08a9',
+  buyback: '0xf8ec6911',
+  tokenCredit: '0xad1ee407', // tokenCredit(address) — settled FWA waiting for withdrawTokens
+  pendingDepositorTokens: '0x6e077f61', // pendingDepositorTokens(uint256 listingId)
+  claimDepositorTokens: '0x4627b85f', // claimDepositorTokens(uint256[])
+  claimEpochTokens: '0xa545c16a', // claimEpochTokens(uint256[] epochs)
+  withdrawTokens: '0x8d8f2adb',
+  // CollectionFloorOracle (V2) — call with ethCallTo(floorOracle, …)
+  getFloorRange: '0xd72e40e3', // getFloorRange(address) -> (bid, ask, observedAt, periodUsed)
+  getFloor: '0x83f67ba4', // getFloor(address) -> (price, observedAt)
+  challengePeriod: '0xf3f480d9',
+  // FWAV2Buyback — call with ethCallTo(buyback, …)
+  maxEthPerBuy: '0x400c5780',
+  minBuyDelayBlocks: '0xf923a36b',
+  callerRewardBps: '0xe3d604c0',
+  routeDepositorBps: '0x87374239',
+  routePurchaserBps: '0x898c6150',
+  routeBurnBps: '0x224212cb',
+  paused: '0x5c975abb',
+  lastBuybackBlock: '0x0741dc4d',
   // depositor earnings
   feeCredit: '0x5c584c88', // feeCredit(address)
   pendingFees: '0xa2b93478', // pendingFees(uint256)
   withdrawEarnings: '0xb73c6ce9',
   withdrawListing: '0xaec6e273', // withdrawListing(uint256) — NFT + backing back to depositor
   claimListingFees: '0xb840cf36', // claimListingFees(uint256[])
+  updateBacking: '0xc622bfcf', // updateBacking(uint256,uint256) payable — re-price a listing
+  claimTopSpot: '0x0986a5a1', // claimTopSpot(uint256)
+  kickListing: '0x61e02d6e', // V2 — kickListing(uint256), blackout-only, over-ceiling listings
   // deposit flow (ERC721 calls go to the collection, listNFT to FWA)
   listNFT: '0x3c61c7aa', // listNFT(address,uint256) payable — backing is msg.value
   ownerOf: '0x6352211e',
@@ -168,17 +349,19 @@ export const SELECTORS = {
   tokenOfOwnerByIndex: '0x2f745c59', // ERC721Enumerable
   tokensOfOwner: '0x8462151c', // tokensOfOwner(address) — ERC721AQueryable / Punks721, one-call array
   // pull-panel reads
-  quoteAcquisitionPrice: '0x987df4cd',
-  settlementDiscountBps: '0xfb2dd096',
+  quoteAcquisitionPrice: '0x987df4cd', // -> (fee, vrf, total)
+  settlementDiscountBps: '0xfb2dd096', // ETH cashout (bps of backing)
   settlementWindow: '0xb4a7bdf9',
   acquisitions: '0x41111a4a', // acquisitions(uint256)
   acquisitionRefundCredit: '0x39ea5e12', // acquisitionRefundCredit(address)
   // writes (sent through the user's wallet, never by this app)
-  acquire: '0x548b0de9', // acquire(uint256,uint256)
+  acquire: '0x548b0de9', // V1 — acquire(uint256 maxAcquisitionFee, uint256 minWeightedValue)
+  acquireV2: '0xf6cb8511', // V2 — acquire(address purchaser, uint256 count, uint256 maxAcquisitionFee, uint256 minWeightedValue, uint256 maxNegativeSlippageBps)
   keepNFT: '0x49cfb710',
   acceptDepositorBid: '0x35390e96',
   acceptBidAsTokens: '0x20bd63ba', // acceptBidAsTokens(uint256,uint256)
   withdrawAcquisitionRefund: '0x6e658d1a',
+  recoverStuckNFT: '0x8ca14105', // V2 — recoverStuckNFT(uint256)
 };
 
 // event topic0 hashes
@@ -205,109 +388,69 @@ export const TOPICS = {
   CollectionWhitelistSet: '0x4c4950b9ef6cb1bc030a44fd8dc97dd16083b2731fb3516ed4f0b9cdffcc9527', // event topic hash (public) — gitleaks:allow
   OwnershipTransferred: '0x8be0079c531659141344cd1fd0a4f28419497f9722a3daafe3b4186f6b6457e0', // event topic hash (public) — gitleaks:allow
   OwnershipHandoverRequested: '0xdbf36a107da19e49527a7176a1babf963b4b0ff8cde35ee35d6cd8f1f9ac7e1d', // event topic hash (public) — gitleaks:allow
+  // V2-only events (all keccak event-signature hashes, public — gitleaks:allow)
+  ListingKicked: '0x25d3112a6d76bf15c75a68a5afe2ea559e7ef701e0328cfa7697f0c6fd6e96c5', // (listingId, caller, depositor, backing, oracleCap) — gitleaks:allow
+  EarlyCrownExitFee: '0x54481df24baf8652d2c08c9a9de5626c914c23180818e523d3c2a72ac46686d2', // (listingId, depositor, grossBacking, fee) — gitleaks:allow
+  TopListingFunded: '0x165c0e5f0e97dd3e3dfd3c8020ff4218886edff2d8f53afa95c0dcd41f4456e0', // every pull — too noisy for feeds — gitleaks:allow
+  NFTDeliveryFailed: '0xb1be2a86e47b6e5052fdd7414928151684a30a17640d50390cd274f6df8e00ac', // (listingId, recipient, collection, tokenId) — gitleaks:allow
+  StuckNFTRecovered: '0xa92dbf0b2ad45a4269427142d1441737f15adf493da0b097a304f3a1dd71e664', // (listingId, recipient) — gitleaks:allow
+  RandomnessTimedOut: '0xb6cbca0f3c364202e477b3951369e96c1c5c8423a8d578723e26f3ef9e24f751', // (requestId, sequence, wordDeadlineBlock, callbackBlock) — gitleaks:allow
+  OracleExemptionSet: '0xb2d0f6071086c8df6da3b5d215d8a0e198bd0fbaef5a4bd99df860f827fd5933', // (collection, exempt) — gitleaks:allow
+  ProtocolFeesToBuyback: '0xfa8aa08559268fe858e68cd50683d74465cea4c087e9dc303b5690bd5a563c71', // (buyback, amount) — gitleaks:allow
+  EarningsWithdrawn: '0x48dc35af7b45e2a81fffad55f6e2fafacdb1d3d0d50d24ebdc16324f5ba757f1', // (depositor, amount) — gitleaks:allow
+  RewardsConfigured: '0x3d3d959e38561e3bf73148f6a9048274ba5c2e1f2bc63227c3963a3edf187f3f', // (rewards, token) — gitleaks:allow
+  // FWAV2Buyback
+  Bought: '0x15053609d51f61ee8a7b1c2250290b901d8ef6cb2afec5d8987f3d8cafa06c4f', // (caller, ethSpent, tokensBought, callerReward, depositorTokens, purchaserTokens, burnedTokens) — gitleaks:allow
 };
 
 // owner/governance events — rare, shown in the feeds and scanned deep for the rules card
 export const ADMIN_TOPICS = [
   TOPICS.ConfigSet, TOPICS.CollectionWhitelistSet,
   TOPICS.OwnershipTransferred, TOPICS.OwnershipHandoverRequested,
+  ...(IS_V2 ? [TOPICS.OracleExemptionSet] : []),
 ];
 
-// everything a human would call "activity" — shared by the live strip and the 24h feed
+// everything a human would call "activity" — shared by the live strip and the 24h feed.
+// V2 drops FeesPaidOut: a bot calls payoutFees() nearly every block there
+// (a 0-ETH FeesPaidOut + a ProtocolFeesToBuyback each time) — pure noise in a
+// 40-row feed; the buyback flow shows up in the rewards card instead.
 export const FEED_TOPICS = [
   TOPICS.AcquisitionRequested, TOPICS.NFTAllocated, TOPICS.NFTKept, TOPICS.NFTRelisted,
   TOPICS.DepositorBidAccepted, TOPICS.DepositorBidAcceptedAsTokens,
   TOPICS.AcquisitionExpired, TOPICS.AcquisitionRefundedNoListing, TOPICS.AcquisitionRefundedSlippage,
   TOPICS.NFTListed, TOPICS.ListingStaged, TOPICS.ListingWithdrawn, TOPICS.BackingUpdated,
-  TOPICS.UnsettledFinalized, TOPICS.TopListingSet, TOPICS.TopListingSettled, TOPICS.FeesPaidOut,
+  TOPICS.UnsettledFinalized, TOPICS.TopListingSet, TOPICS.TopListingSettled,
+  ...(IS_V2
+    ? [TOPICS.ListingKicked, TOPICS.EarlyCrownExitFee, TOPICS.NFTDeliveryFailed, TOPICS.StuckNFTRecovered, TOPICS.RandomnessTimedOut]
+    : [TOPICS.FeesPaidOut]),
   ...ADMIN_TOPICS,
 ];
 
-// Knobs with no public getter, snapshotted from ConfigSet history at block
-// 25650175 (2026-07-30, verified on-chain). ConfigSet events from the 7d
-// admin scan overlay these, so a knob turn shows up within one logs poll.
-export const KNOB_SNAPSHOT = {
-  minBacking: 50000000000000000n, // raised 0.01 → 0.05 ETH at block 25639206
-  pullsEnabled: true,
-  withdrawOnly: false,
-  whitelistEnabled: true,
-  sellBackAsTokens: true,
-  maxPullsPerTx: 5n,
-  whitelistManager: '0x854352b275cf6a0dffcf2983c986fbe9345e17c3', // set at block 25546799
-};
+// Apply one ConfigSet(key, value) to a knobs object (the no-getter knobs) —
+// used by the dashboard's admin overlay and mirrored in api/_fwa.js.
+export function applyConfigSet(knobs, key, value) {
+  switch (key) {
+    case 12: knobs.maxPullsPerTx = value; break;
+    case 13: knobs.pullSurchargeBps = value; break;
+    case 22: knobs.minBacking = value; break;
+    case 23: knobs.protocolFeeToTokenBps = value; break;
+    case 41: knobs.pullsEnabled = value !== 0n; break;
+    case 42: knobs.withdrawOnly = value !== 0n; break;
+    case 43: knobs.whitelistEnabled = value !== 0n; break;
+    case 44: knobs.sellBackAsTokens = value !== 0n; break;
+    case 62: knobs.whitelistManager = value === 0n ? null : '0x' + value.toString(16).padStart(40, '0'); break;
+    default: break;
+  }
+  return knobs;
+}
 
-// Collections allowed to deposit (CollectionWhitelistSet history to block
-// 25650175), overlaid with the scan's live events. Regenerate with
-// tools: scan CollectionWhitelistSet from deploy block 25546793.
-export const WHITELIST_SNAPSHOT = [
-  ['0x000000000000003607fce1ac9e043a86675c5c2f', 'CryptoPunks 721'],
-  ['0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d', 'Bored Ape Yacht Club'],
-  ['0x60e4d786628fea6478f785a6d7e704777c86a7c6', 'Mutant Ape Yacht Club'],
-  ['0xed5af388653567af2f388e6224dc7c4b3241c544', 'Azuki'],
-  ['0x5af0d9827e0c53e4799bb226655a1de152a425a5', 'Milady'],
-  ['0xbd3531da5cf5857e7cfaa92426877b022e612cf8', 'Pudgy Penguins'],
-  ['0x524cab2ec69124574082676e6f654a18df49a048', 'Lil Pudgys'],
-  ['0x062e691c2054de82f28008a8ccc6d7a1c8ce060d', 'Pudgy Present'],
-  ['0x8a90cab2b38dba80c64b7734e58ee1db38b8992e', 'Doodles'],
-  ['0x9c8ff314c9bc7f6e59a9d9225fb22946427edc03', 'Nouns'],
-  ['0x7bd29408f11d2bfc23c34f18275bbf23bb716bc7', 'Meebits'],
-  ['0xd4e4078ca3495de5b1d4db434bebc5a986197782', 'Autoglyphs'],
-  ['0x059edd72cd353df5106d2b9cc5ab83a52287ac3a', 'Art Blocks (Squiggle)'],
-  ['0xab00000000002ade39f58f9d8278a31574ffbe77', 'Art Blocks'],
-  ['0x942bc2d3e7a589fe5bd4a5c6ef9727dfd82f5c8a', 'Art Blocks Explorations'],
-  ['0xbdde08bd57e5c9fd563ee7ac61618cb2ecdc0ce0', 'CryptoCitizens'],
-  ['0x1cb1a5e65610aeff2551a50f76a87a7d3fb649c6', 'Cryptoadz'],
-  ['0x42069abfe407c60cf4ae4112bedead391dba1cdb', 'CryptoDickbutts S3'],
-  ['0x036721e5a769cc48b3189efbb9cce4471e8a48b1', 'Checks'],
-  ['0x6339e5e072086621540d0362c4e3cea0d643e114', 'Opepen Edition'],
-  ['0xd774557b647330c91bf44cfeab205095f7e6c367', 'Nakamigos'],
-  ['0x79fcdef22feed20eddacbb2587640e45491b757f', 'mfers'],
-  ['0x2acab3dea77832c09420663b0e1cb386031ba17b', 'DeadFellaz'],
-  ['0xa3aee8bce55beea1951ef834b99f3ac60d1abeeb', 'VeeFriends'],
-  ['0x9378368ba6b85c1fba5b131b530f5f5bedf21a18', 'VeeFriends Series 2'],
-  ['0xb852c6b5892256c264cc2c888ea462189154d8d7', 'Rektguy'],
-  ['0x307af7d28afee82092aa95d35644898311ca5360', 'Chimpers'],
-  ['0xd4b7d9bb20fa20ddada9ecef8a7355ca983cccb1', 'Quirkies'],
-  ['0xc7e67762821b2ed6c0a1f423547b2899822d8650', 'Wolf Game'],
-  ['0x790b2cf29ed4f310bf7641f013c65d4560d28371', 'Otherdeed Expanded'],
-  ['0xe012baf811cf9c05c408e879c399960d1f305903', 'Koda'],
-  ['0x26d7ad0e930b54b84c00daad077ee31ba9e2fb2e', 'Ten Thousand Tokens'],
-  ['0xd1169e5349d1cb9941f3dcba135c8a4b9eacfdde', 'MAX PAIN (XCOPY)'],
-  ['0xc04e0000726ed7c5b9f0045bc0c4806321bc6c65', 'XCORE'],
-  ['0xd92e44ac213b9ebda0178e1523cc0ce177b7fa96', 'Beeple Round 2'],
-  ['0xdd012153e008346591153fff28b0dd6724f0c256', 'Beeple Spring Collection'],
-  ['0x4440732b0d85e2a77dcb2caedfd940154241249a', 'Masks of Luci (Sam Spratt)'],
-  ['0x880af717abba38f31ca21673843636a355fb45f3', 'DRIP DROP (Dave Krugman)'],
-  ['0x8e02d1e68dff0dcebf1cde4ee5f60f1d5a499b1e', 'OCH Genesis Ring'],
-  ['0x7a50abab1af2c15fe9780f4f045820294e1a715c', 'PXL NET'],
-  ['0xdfea2b364db868b1d2601d6b833d74db4de94460', 'RMNANTS'],
-  ['0x7a7b26ec72c8497fd068211979199044deeacc3b', 'REGULAR ANIMALS'],
-  ['0xa471f4da9b79645f4f5358e102c62f59c1329aa5', 'beef brothko'],
-  ['0x03b8d129a8f6dc62a797b59aa5eebb11ad63dada', 'SMOWL'],
-  ['0x75de5bc35248026fabcb2382cf322bc79dfd1a8c', 'Birds'],
-  ['0xb8ea78fcacef50d41375e44e6814ebba36bb33c4', 'Good Vibes Club'],
-  ['0xe18f2247fe4a69c0e2210331b0604f6d10fece9e', 'glitch Gallery'],
-  ['0x4c159520f1117ac58cb5efa1765469cac54dcaab', 'pattern recognition'],
-  ['0x6efc003d3f3658383f06185503340c2cf27a57b6', 'YOU THE REAL MVP'],
-  ['0x614917f589593189ac27ac8b81064cbe450c35e3', 'Letters'],
-  ['0x4024c2083f5457874ec489f7c7332680bb86c92b', 'Farmer'],
-  ['0xd0090373e80236adb6c07cf21b7395938cca46b3', 'everything vs nothing'],
-  ['0xd90829c6c6012e4dde506bd95d7499a04b9a56de', 'BROKEN'],
-  ['0xf8cc77098adb1e8becad7aae11d667aa01db9d7c', 'GeoMetric Pepes'],
-  ['0xd716473c8eb83a2102def2b6390d9dfe74b2f580', 'Wrappers'],
-  ['0x8fe1a377b83921fe1429adb1b8fbfecd45de9cd8', 'fwogs'],
-  ['0xd16809c0a7d82c9e7552a01fd608fff90efb564f', 'RCS'],
-  ['0xd83b6493ecebc29a6da555935d1b8572a14fc989', 'Ethos Validators'],
-  ['0x0427743df720801825a5c82e0582b1e915e0f750', '0xmons'],
-  ['0x727c739f07a89f11e883fe0f34937c55e4c3d74a', 'FWA Token Packs'],
-  ['0x470879abd61fdca91436fe27ed87db2c8650f3e7', 'Locked FWA Token Packs'],
-];
-
-// FWAConfigKeys: the owner's tunable knobs, keyed by the uint in ConfigSet(key, value).
-// fmt renders the raw uint the way a human reads that knob.
+// FWAConfigKeys / FWAV2ConfigKeys: the owner's tunable knobs, keyed by the uint in ConfigSet(key, value).
+// Keys are globally unique across setUint/setBool/setAddr and identical between V1 and V2
+// (V2 adds 26–29 and 63–66). fmt renders the raw uint the way a human reads that knob.
 const fmtBps = (v) => { const p = Number(v) / 100; return (Number.isInteger(p) ? p : p.toFixed(2)) + '%'; };
-const fmtSecs = (v) => { const s = Number(v); return s % 86400 === 0 ? s / 86400 + 'd' : s % 3600 === 0 ? s / 3600 + 'h' : s + 's'; };
+const fmtSecs = (v) => { const s = Number(v); return s % 86400 === 0 ? s / 86400 + 'd' : s % 3600 === 0 ? s / 3600 + 'h' : s % 60 === 0 ? s / 60 + 'm' : s + 's'; };
 const fmtSwitch = (v) => (v === 0n ? 'OFF' : 'ON');
+const fmtAddrWord = (v) => shortAddr('0x' + v.toString(16).padStart(40, '0'));
 export const CONFIG_KEYS = {
   1: { label: 'VRF callback gas', fmt: (v) => fmtNum(v) },
   2: { label: 'VRF subscription', fmt: () => 'rotated' },
@@ -317,25 +460,33 @@ export const CONFIG_KEYS = {
   12: { label: 'max pulls / tx', fmt: (v) => v.toString() },
   13: { label: 'pull surcharge', fmt: fmtBps },
   14: { label: 'selection slippage', fmt: fmtBps },
-  15: { label: 'top-pot share of pulls', fmt: fmtBps },
-  16: { label: 'top takeover threshold', fmt: (v) => '+' + fmtBps(v) },
-  17: { label: 'sell-back payout', fmt: fmtBps },
+  15: { label: 'crown tithe (share of pulls)', fmt: fmtBps },
+  16: { label: 'crown takeover threshold', fmt: (v) => '+' + fmtBps(v) },
+  17: { label: 'ETH sell-back payout', fmt: fmtBps },
   18: { label: 'owner cut of pulls', fmt: fmtBps },
-  19: { label: 'owner cut of sell-backs', fmt: fmtBps },
+  19: { label: 'owner cut of kept NFTs', fmt: fmtBps },
   20: { label: 'winner settlement window', fmt: fmtSecs },
   21: { label: 'finalize window', fmt: fmtSecs },
   22: { label: 'min deposit backing', fmt: (v) => fmtEth(v) + ' ETH' },
-  23: { label: 'protocol fees → FWA token', fmt: fmtBps },
+  23: { label: 'protocol fees → FWA buyback', fmt: fmtBps },
   24: { label: 'VRF key hash', fmt: () => 'rotated' },
   25: { label: 'staging queue cap', fmt: (v) => (v === 0n ? 'unlimited' : v.toString()) },
+  26: { label: 'max oracle quote age', fmt: fmtSecs },
+  27: { label: 'min oracle challenge period', fmt: fmtSecs },
+  28: { label: 'oracle ceiling premium', fmt: (v) => '+' + fmtBps(v) + ' over ask' },
+  29: { label: 'FWA sell-back budget', fmt: fmtBps },
   40: { label: 'retained slice → protocol', fmt: fmtSwitch },
   41: { label: 'pulls enabled', fmt: fmtSwitch },
   42: { label: 'withdraw-only mode', fmt: fmtSwitch },
   43: { label: 'deposit whitelist', fmt: fmtSwitch },
   44: { label: 'sell-back as FWA tokens', fmt: fmtSwitch },
   60: { label: 'VRF coordinator', fmt: () => 'rotated' },
-  61: { label: 'payout address', fmt: (v) => shortAddr('0x' + v.toString(16).padStart(40, '0')) },
-  62: { label: 'whitelist manager', fmt: (v) => (v === 0n ? 'revoked' : shortAddr('0x' + v.toString(16).padStart(40, '0'))) },
+  61: { label: 'payout address', fmt: fmtAddrWord },
+  62: { label: 'whitelist manager', fmt: (v) => (v === 0n ? 'revoked' : fmtAddrWord(v)) },
+  63: { label: 'VRF service', fmt: fmtAddrWord },
+  64: { label: 'floor oracle', fmt: fmtAddrWord },
+  65: { label: 'FWAIR launch registry', fmt: (v) => (v === 0n ? 'disabled' : fmtAddrWord(v)) },
+  66: { label: 'purchase notifier', fmt: fmtAddrWord },
 };
 export function describeConfig(key, value) {
   const k = CONFIG_KEYS[key];
@@ -779,6 +930,23 @@ export function describeLog(log) {
       return { name: 'New owner', badge: 'danger', parts: ['ownership → ', A(topicAddr(t[2]))] };
     case TOPICS.OwnershipHandoverRequested:
       return { name: 'Handover ask', badge: 'danger', parts: [A(topicAddr(t[1])), ' requested ownership'] };
+    // ---- V2 ----
+    case TOPICS.ListingKicked:
+      return { name: 'Kicked', badge: 'danger', parts: ['#' + topicNum(t[1]) + ' over the oracle cap (' + fmtEth(dataWord(0)) + ' > ' + fmtEth(dataWord(1)) + ' ETH) — kicked by ', A(topicAddr(t[2])), ', backing + NFT back to ', A(topicAddr(t[3]))] };
+    case TOPICS.EarlyCrownExitFee:
+      return { name: 'Crown exit fee', badge: 'warning', parts: ['#' + topicNum(t[1]) + ' left the crown inside 12h — ', A(topicAddr(t[2])), ' paid ' + fmtEth(dataWord(1)) + ' ETH (1% of ' + fmtEth(dataWord(0)) + ')'] };
+    case TOPICS.NFTDeliveryFailed:
+      return { name: 'NFT stuck', badge: 'danger', parts: ['#' + topicNum(t[1]) + ' could not be delivered to ', A(topicAddr(t[2])), ' — recoverable via recoverStuckNFT'] };
+    case TOPICS.StuckNFTRecovered:
+      return { name: 'NFT recovered', badge: 'success', parts: ['#' + topicNum(t[1]) + ' recovered by ', A(topicAddr(t[2]))] };
+    case TOPICS.RandomnessTimedOut:
+      return { name: 'VRF late', badge: 'danger', parts: ['seq ' + topicNum(t[2]) + ': randomness landed after its deadline — request will be skipped and refunded'] };
+    case TOPICS.OracleExemptionSet:
+      return { name: 'Oracle exempt', badge: 'danger', parts: [A(topicAddr(t[1])), dataWord(0) === 0n ? ' back under the oracle ceiling' : ' exempt from the oracle ceiling (no drift kicks)'] };
+    case TOPICS.ProtocolFeesToBuyback:
+      return { name: 'Fees → buyback', badge: 'secondary', parts: [fmtEth(dataWord(0)) + ' ETH → ', A(topicAddr(t[1]))] };
+    case TOPICS.EarningsWithdrawn:
+      return { name: 'Earnings out', badge: 'secondary', parts: [A(topicAddr(t[1])), ' withdrew ' + fmtEth(dataWord(0)) + ' ETH of fees'] };
     default:
       return { name: 'Event', badge: 'secondary', parts: [shortHash(t[0])] };
   }

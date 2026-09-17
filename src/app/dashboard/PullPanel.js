@@ -1,6 +1,6 @@
 import React, { Component } from 'react';
 import {
-  FWA_ADDRESS, ETHERSCAN, SELECTORS, TOPICS,
+  FWA_ADDRESS, ETHERSCAN, SELECTORS, TOPICS, IS_V2, blackoutState,
   rpcBatch, rpcBatchSafe, ethCall, encodeData, addrTopic,
   toBig, toNum, word, wordAddr, topicNum,
   fmtEth, fmtAge, fetchListingArt, openSeaUrl, POLL,
@@ -24,12 +24,18 @@ const ACQ_PENDING = 1n;
 const ACQ_READY = 5n;
 // ListingStatus.Allocated
 const LISTING_ALLOCATED = 2n;
+// V2 acquire(): downward fee drift we accept at ordered processing before the
+// pull turns into a refund credit — mirrors the protocol's own 10% upward cap
+const V2_MAX_NEG_SLIPPAGE_BPS = 1000n;
+const fmtUtc = (ms) => new Date(ms).toISOString().slice(11, 16) + ' UTC';
 
 export class PullPanel extends Component {
   state = {
     account: null,
     quote: null, // { fee, vrf, total }
-    discountBps: null,
+    discountBps: null, // ETH cashout, bps of backing
+    settlementWindow: null, // seconds of exclusive choice after allocation
+    blackout: blackoutState(),
     waiting: [], // my requests still waiting on VRF / ordered settlement
     won: [], // my allocated listings awaiting the keep/eth/tokens choice
     refundCredit: 0n,
@@ -70,7 +76,8 @@ export class PullPanel extends Component {
       if (this.state.account) this.refreshAccount(this.state.account);
     }, REFRESH_MS);
     this.ageTimer = setInterval(() => {
-      if (this.state.waiting.length) this.setState({ now: Date.now() });
+      // progress bars, settlement countdowns and the V2 purchase-pause clock all read `now`
+      if (this.state.waiting.length || this.state.won.length || IS_V2) this.setState({ now: Date.now(), blackout: blackoutState() });
     }, 1000);
   }
 
@@ -85,14 +92,16 @@ export class PullPanel extends Component {
     try {
       const [block] = await rpcBatch([['eth_getBlockByNumber', ['latest', false]]]);
       const gasPrice = toBig(block.baseFeePerGas || '0x3b9aca00') * 3n; // vrf fee scales with tx.gasprice
-      const [quoteRaw, discountRaw] = await rpcBatch([
+      const [quoteRaw, discountRaw, windowRaw] = await rpcBatch([
         ethCall(SELECTORS.quoteAcquisitionPrice, [], { gasPrice: '0x' + gasPrice.toString(16) }),
         ethCall(SELECTORS.settlementDiscountBps),
+        ethCall(SELECTORS.settlementWindow),
       ]);
       if (!this.alive) return;
       this.setState({
         quote: { fee: word(quoteRaw, 0), vrf: word(quoteRaw, 1), total: word(quoteRaw, 2) },
         discountBps: toBig(discountRaw),
+        settlementWindow: toNum(windowRaw),
       });
     } catch (e) {
       if (this.alive) this.setState({ error: 'quote failed: ' + (e.message || e) });
@@ -208,12 +217,23 @@ export class PullPanel extends Component {
   }
 
   pull() {
-    const { quote } = this.state;
-    if (!quote) return;
+    const { quote, account } = this.state;
+    if (!quote || !account) return;
+    if (blackoutState().active) {
+      this.setState({ error: 'V2 pauses new purchases 11:45–12:00 and 23:45–00:00 UTC — try again in ' + fmtAge(blackoutState().secondsToChange) });
+      return;
+    }
     // protect against a fee shift between quote and inclusion; overpay is refunded in-tx
     const maxFee = quote.fee * 105n / 100n;
     const value = maxFee + quote.vrf * 2n;
-    this.runTx('pull', { data: encodeData(SELECTORS.acquire, [maxFee, 0n]), value });
+    // V2: acquire(purchaser, count, maxAcquisitionFee, minWeightedValue, maxNegativeSlippageBps)
+    // — the purchaser is named explicitly (contracts can buy for others); we
+    // name the connected wallet so it gets the NFT, rewards and any refund.
+    // V1: acquire(maxAcquisitionFee, minWeightedValue)
+    const data = IS_V2
+      ? encodeData(SELECTORS.acquireV2, [account, 1n, maxFee, 0n, V2_MAX_NEG_SLIPPAGE_BPS])
+      : encodeData(SELECTORS.acquire, [maxFee, 0n]);
+    this.runTx('pull', { data, value });
   }
 
   keepNFT(w) {
@@ -234,8 +254,9 @@ export class PullPanel extends Component {
   }
 
   render() {
-    const { account, quote, discountBps, waiting, won, refundCredit, busy, txHash, error } = this.state;
+    const { account, quote, discountBps, settlementWindow, waiting, won, refundCredit, busy, txHash, error, blackout, now } = this.state;
     const hasWallet = !!injected();
+    const paused = IS_V2 && blackout.active;
 
     return (
       <div className="card grid-margin pull-panel">
@@ -247,6 +268,8 @@ export class PullPanel extends Component {
                 <span className="text-muted small">
                   price <strong className="text-white">{fmtEth(quote.total)} ETH</strong>
                   <span className="d-none d-md-inline"> (pool fee {fmtEth(quote.fee)} + vrf {fmtEth(quote.vrf)})</span>
+                  {paused && <span className="text-warning"> · <i className="mdi mdi-pause-circle"></i> purchases paused until {fmtUtc(now + blackout.secondsToChange * 1000)}</span>}
+                  {IS_V2 && !paused && blackout.secondsToChange < 1800 && <span className="text-warning"> · pause in {fmtAge(blackout.secondsToChange)}</span>}
                 </span>
               )}
             </div>
@@ -259,11 +282,12 @@ export class PullPanel extends Component {
                   </button>
                 )}
               <button
-                className="btn btn-success font-weight-bold"
-                disabled={!account || !quote || !!busy}
+                className={'btn font-weight-bold ' + (paused ? 'btn-outline-warning' : 'btn-success')}
+                disabled={!account || !quote || !!busy || paused}
+                title={paused ? 'V2 refuses new purchases 11:45–12:00 and 23:45–00:00 UTC; settling a win still works' : 'pay the quote for one random NFT from the pool'}
                 onClick={() => this.pull()}
               >
-                <i className="mdi mdi-dice-multiple"></i> {busy === 'pull' ? 'PULLING…' : 'PULL'}
+                <i className={'mdi ' + (paused ? 'mdi-pause' : 'mdi-dice-multiple')}></i> {busy === 'pull' ? 'PULLING…' : paused ? 'PAUSED · ' + fmtAge(blackout.secondsToChange) : 'PULL'}
               </button>
             </div>
           </div>
@@ -322,8 +346,16 @@ export class PullPanel extends Component {
                 {won.map((w) => {
                   // check the floor/offers before choosing keep vs ETH vs tokens
                   const osUrl = openSeaUrl(w.collection, w.tokenId);
+                  // exclusive-choice countdown: after it the depositor may resolve
+                  // the position (you can still settle until someone does)
+                  const leftS = settlementWindow && w.allocatedAt ? w.allocatedAt + settlementWindow - now / 1000 : null;
                   return (
                   <div key={w.listingId} className="pull-panel-win mr-3 mb-2">
+                    {leftS !== null && (
+                      <p className={'small text-center mb-1 ' + (leftS > 600 ? 'text-muted' : leftS > 0 ? 'text-warning' : 'text-danger')} title="your exclusive window to choose; afterwards the depositor may take the backing back and hand you the NFT, or keep the NFT and pay you the ETH rate">
+                        <i className="mdi mdi-timer-sand"></i> {leftS > 0 ? 'choose within ' + fmtAge(leftS) : 'exclusive window passed — settle before the depositor does'}
+                      </p>
+                    )}
                     {w.img
                       ? (osUrl
                         ? <a href={osUrl} target="_blank" rel="noopener noreferrer"><img className="pull-ticker-art hv-art" src={w.img} alt="" /></a>

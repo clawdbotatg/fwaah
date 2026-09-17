@@ -6,9 +6,32 @@
 entirely against **your own node** (or your own Alchemy endpoint), so you can
 watch the pool and play even if the official website goes down.
 
-Core contract: `0xB276F62DB0ce8CA2Ca5bc522695bE604521eAc1c` (mainnet).
+Two FWA main pools are live and the app drives either one:
+
+| | address (mainnet) | notes |
+| --- | --- | --- |
+| **V2** (default) | `0x958C41181182e76F221331b2755b77D9e1426A98` | live since 2026-09-16: oracle backing ceiling, daily purchase pauses, 12h crown commitment, separate ETH/FWA cashout rates, buyback-fed rewards epochs |
+| **V1** (legacy) | `0xB276F62DB0ce8CA2Ca5bc522695bE604521eAc1c` | still running with its own listings; emission ended 2026-08-04 |
+
+Switch with `?pool=v1` / `?pool=v2` (sticks in localStorage), the sidebar, or
+the header link. V2 is a separate deployment, not an upgrade — "migrating" is
+withdraw from one, deposit into the other. Both share the FWA token.
+
 Built on the [Corona React](https://github.com/BootstrapDash/corona-react-free-admin-template)
 admin theme, modernized to react-scripts 5 + dart-sass.
+
+## Keeping the baked chain snapshot fresh
+
+`src/app/fwa/pools.json` bakes each pool's no-getter knobs (min backing, kill
+switches, surcharge…), deposit whitelist and oracle exemptions at a block; the
+app and `api/snapshot.js` both read that one file and overlay every
+`ConfigSet` / `CollectionWhitelistSet` / `OracleExemptionSet` event since. The
+overlay scans back to the snapshot block (up to ~60 days), so staleness only
+costs a longer first scan — but regenerate now and then:
+
+```
+RPC=https://eth-mainnet.g.alchemy.com/v2/KEY node scripts/snapshot.mjs
+```
 
 ## Run
 

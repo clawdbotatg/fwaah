@@ -1,9 +1,9 @@
 import React, { Component } from 'react';
 import {
-  FWA_ADDRESS, ETHERSCAN, SELECTORS, TOPICS,
-  rpcBatch, rpcBatchSafe, ethCall, addrTopic, encodeData,
-  toNum, word, wordAddr, topicNum,
-  fmtEth, fmtAge, fetchListingArt, openSeaUrl, POLL,
+  FWA_ADDRESS, ETHERSCAN, SELECTORS, TOPICS, IS_V2, CROWN_COMMITMENT_S, oracleCeiling,
+  rpcBatch, rpcBatchSafe, ethCall, ethCallTo, addrTopic, encodeData,
+  toNum, toBig, word, wordAddr, topicNum,
+  fmtEth, fmtNum, fmtAge, fetchListingArt, openSeaUrl, POLL,
 } from '../fwa/fwa';
 import { injected, onAccountsChanged, autoReconnectAllowed, sendTx, waitForReceipt } from '../fwa/wallet';
 
@@ -12,6 +12,7 @@ const CHUNK_BLOCKS = 7200; // 24h per getLogs call — under node range/result c
 const MAX_SCAN_BLOCKS = 50400; // ~7d; pruned nodes stop the walk early anyway
 const MAX_TILES = 48; // whale guard: count/total cover everything, tiles don't
 const LISTING_ACTIVE = 1n;
+const ZERO_ADDR = /^0x0{40}$/;
 
 // Your NFTs currently in the pool. NFTListed indexes the depositor, so one
 // filtered log scan finds your listings without touching every collection:
@@ -19,7 +20,13 @@ const LISTING_ACTIVE = 1n;
 // and each poll re-checks statuses (pulled NFTs drop out) + picks up new
 // deposits incrementally.
 export class MyDeposits extends Component {
-  state = { account: null, items: [], scanning: false, scannedBlocks: 0, now: Date.now(), feeCredit: 0n, pendingTotal: 0n, txBusy: null, txError: null };
+  state = {
+    account: null, items: [], scanning: false, scannedBlocks: 0, now: Date.now(),
+    feeCredit: 0n, pendingTotal: 0n, // ETH fee earnings: settled credit + pending on active listings
+    fwaCredit: 0n, fwaPendingTotal: 0n, // FWA rewards from the rewards module, same split
+    crown: null, // { listingId, since } — who holds the crown (V2 adds the 12h commitment)
+    txBusy: null, txError: null,
+  };
 
   componentDidMount() {
     this.alive = true;
@@ -57,6 +64,25 @@ export class MyDeposits extends Component {
     this.alive = false;
     clearInterval(this.pollTimer);
     clearInterval(this.ageTimer);
+  }
+
+  // one-time wiring: rewards module address; on V2 also the floor oracle,
+  // its premium and quote max-age (needed to flag listings above the ceiling)
+  async loadWiring() {
+    if (this.wiring) return this.wiring;
+    try {
+      const calls = [ethCall(SELECTORS.rewards)];
+      if (IS_V2) calls.push(ethCall(SELECTORS.floorOracle), ethCall(SELECTORS.oracleCeilingPremiumBps), ethCall(SELECTORS.maxOracleAge));
+      const r = await rpcBatchSafe(calls);
+      const rewards = r[0] ? wordAddr(r[0], 0) : null;
+      this.wiring = {
+        rewards: rewards && !ZERO_ADDR.test(rewards) ? rewards : null,
+        oracle: IS_V2 && r[1] ? wordAddr(r[1], 0) : null,
+        premiumBps: IS_V2 && r[2] ? toBig(r[2]) : 0n,
+        maxAgeS: IS_V2 && r[3] ? toNum(r[3]) : 0,
+      };
+    } catch (e) { this.wiring = null; }
+    return this.wiring;
   }
 
   depositorLogs(account, from, to) {
@@ -113,11 +139,29 @@ export class MyDeposits extends Component {
       const { items } = this.state;
       if (items.length && Date.now() - (this.lastSweep || 0) > POLL.highValue) {
         this.lastSweep = Date.now();
-        const res = await rpcBatchSafe([
+        const wiring = await this.loadWiring();
+        const n = items.length;
+        const calls = [
           ...items.map((it) => ethCall(SELECTORS.listings, [BigInt(it.listingId)])),
           ...items.map((it) => ethCall(SELECTORS.pendingFees, [BigInt(it.listingId)])),
           ethCall(SELECTORS.feeCredit, [account]),
-        ]);
+          ethCall(SELECTORS.topListingId),
+          ...(IS_V2 ? [ethCall(SELECTORS.topListingSince)] : []),
+        ];
+        // FWA rewards ride the same batch when the module is wired
+        const hasRewards = wiring && wiring.rewards;
+        if (hasRewards) {
+          calls.push(...items.map((it) => ethCallTo(wiring.rewards, SELECTORS.pendingDepositorTokens, [BigInt(it.listingId)])));
+          calls.push(ethCallTo(wiring.rewards, SELECTORS.tokenCredit, [account]));
+        }
+        // V2 oracle ceiling per distinct collection, to flag kick-eligible listings
+        const collections = IS_V2 && wiring && wiring.oracle
+          ? [...new Set(items.map((it) => it.collection).filter(Boolean))] : [];
+        collections.forEach((c) => calls.push(
+          ethCallTo(wiring.oracle, SELECTORS.getFloorRange, [c]),
+          ethCall(SELECTORS.oracleExemptCollections, [c]),
+        ));
+        const res = await rpcBatchSafe(calls);
         const gone = new Set();
         const pendingById = {};
         let pendingTotal = 0n;
@@ -125,20 +169,54 @@ export class MyDeposits extends Component {
           const raw = res[i];
           if (!raw || word(raw, 10) !== LISTING_ACTIVE
             || wordAddr(raw, 1).toLowerCase() !== account.toLowerCase()) gone.add(it.listingId);
-          else if (res[items.length + i]) {
-            const p = word(res[items.length + i], 0);
+          else if (res[n + i]) {
+            const p = word(res[n + i], 0);
             pendingById[it.listingId] = p;
             pendingTotal += p;
           }
         });
-        const creditRaw = res[items.length * 2];
+        let i = 2 * n;
+        const creditRaw = res[i++];
+        const topRaw = res[i++];
+        const sinceRaw = IS_V2 ? res[i++] : null;
+        const crown = topRaw && word(topRaw, 0) !== 0n
+          ? { listingId: Number(word(topRaw, 0)), since: sinceRaw ? Number(word(sinceRaw, 0)) : null } : null;
+        const fwaById = {};
+        let fwaPendingTotal = 0n;
+        let fwaCreditRaw = null;
+        if (hasRewards) {
+          items.forEach((it, j) => {
+            const r = res[i + j];
+            if (r) { fwaById[it.listingId] = word(r, 0); fwaPendingTotal += word(r, 0); }
+          });
+          i += n;
+          fwaCreditRaw = res[i++];
+        }
+        // cap per collection: null when exempt or no fresh quote (no kick possible without one)
+        const capByCollection = {};
+        collections.forEach((c) => {
+          const rangeRaw = res[i++];
+          const exemptRaw = res[i++];
+          const exempt = !!exemptRaw && word(exemptRaw, 0) === 1n;
+          const ask = rangeRaw ? word(rangeRaw, 1) : 0n;
+          const fresh = rangeRaw && ask !== 0n && Number(word(rangeRaw, 2)) + wiring.maxAgeS >= Date.now() / 1000;
+          capByCollection[c] = exempt || !fresh ? null : oracleCeiling(ask, wiring.premiumBps);
+        });
         if (this.alive && this.state.account === account) {
           this.setState((prev) => ({
             items: prev.items
               .filter((it) => !gone.has(it.listingId))
-              .map((it) => (pendingById[it.listingId] !== undefined ? { ...it, pending: pendingById[it.listingId] } : it)),
+              .map((it) => ({
+                ...it,
+                pending: pendingById[it.listingId] !== undefined ? pendingById[it.listingId] : it.pending,
+                fwaPending: fwaById[it.listingId] !== undefined ? fwaById[it.listingId] : it.fwaPending,
+                cap: it.collection && capByCollection[it.collection] !== undefined ? capByCollection[it.collection] : it.cap,
+              })),
             pendingTotal,
             feeCredit: creditRaw ? word(creditRaw, 0) : prev.feeCredit,
+            fwaPendingTotal,
+            fwaCredit: fwaCreditRaw ? word(fwaCreditRaw, 0) : prev.fwaCredit,
+            crown,
           }));
         }
       }
@@ -186,6 +264,83 @@ export class MyDeposits extends Component {
       if (!this.alive) return;
       this.lastSweep = 0; // re-total on the next poll
       this.setState({ txBusy: null, feeCredit: 0n, pendingTotal: 0n });
+    } catch (e) {
+      if (!this.alive) return;
+      const msg = e && e.code === 4001 ? 'rejected in wallet' : String((e && e.message) || e);
+      this.setState({ txBusy: null, txError: msg });
+    }
+  }
+
+  // Harvest FWA rewards from the rewards module: settle each active listing's
+  // accrual into your token credit (claimDepositorTokens), then withdrawTokens.
+  async claimFwa() {
+    const { account, items, fwaPendingTotal, fwaCredit } = this.state;
+    const wiring = await this.loadWiring();
+    if (!account || this.state.txBusy || !wiring || !wiring.rewards) return;
+    try {
+      if (fwaPendingTotal > 0n && items.length) {
+        this.setState({ txBusy: 'claiming FWA', txError: null });
+        const ids = items.filter((it) => it.fwaPending > 0n).slice(0, 120).map((it) => BigInt(it.listingId));
+        const hash = await sendTx({
+          from: account,
+          to: wiring.rewards,
+          data: encodeData(SELECTORS.claimDepositorTokens, [32n, BigInt(ids.length), ...ids]),
+        });
+        const receipt = await waitForReceipt(hash);
+        if (receipt.status === '0x0') throw new Error('claim reverted');
+      }
+      if (fwaCredit > 0n || fwaPendingTotal > 0n) {
+        this.setState({ txBusy: 'withdrawing FWA', txError: null });
+        const hash = await sendTx({ from: account, to: wiring.rewards, data: encodeData(SELECTORS.withdrawTokens, []) });
+        const receipt = await waitForReceipt(hash);
+        if (receipt.status === '0x0') throw new Error('withdraw reverted');
+      }
+      if (!this.alive) return;
+      this.lastSweep = 0;
+      this.setState({ txBusy: null, fwaCredit: 0n, fwaPendingTotal: 0n });
+    } catch (e) {
+      if (!this.alive) return;
+      const msg = e && e.code === 4001 ? 'rejected in wallet' : String((e && e.message) || e);
+      this.setState({ txBusy: null, txError: msg });
+    }
+  }
+
+  // Re-price ONE listing: updateBacking(id, newBacking) — send the shortfall
+  // to raise, get the difference back to lower. Raising keeps crown tenure;
+  // lowering forfeits it (and costs 1% inside the 12h commitment on V2).
+  async reprice(it) {
+    const { account, crown } = this.state;
+    if (!account || this.state.txBusy) return;
+    const isCrown = crown && crown.listingId === it.listingId;
+    const lockedS = isCrown && crown.since ? Math.max(0, crown.since + CROWN_COMMITMENT_S - Date.now() / 1000) : 0;
+    let hint = 'new backing in ETH for #' + it.listingId + ' (now ' + fmtEth(it.backing) + ')';
+    if (IS_V2 && it.cap) hint += '\nV2 oracle ceiling for this collection: ' + fmtEth(it.cap) + ' ETH';
+    if (lockedS > 0) hint += '\nthis is the crown, ' + fmtAge(lockedS) + ' into its 12h commitment: LOWERING it costs 1% of the current backing (raising is free)';
+    const input = window.prompt(hint, fmtEth(it.backing));
+    if (input === null) return;
+    let newWei;
+    try { newWei = BigInt(Math.round(parseFloat(input) * 1e6)) * 10n ** 12n; } catch (e) { return; }
+    if (!(newWei > 0n) || newWei === it.backing) return;
+    if (IS_V2 && it.cap && newWei > it.cap) {
+      this.setState({ txError: 'that is above the oracle ceiling (' + fmtEth(it.cap) + ' ETH) — the contract would revert' });
+      return;
+    }
+    try {
+      this.setState({ txBusy: 'repricing #' + it.listingId, txError: null });
+      const hash = await sendTx({
+        from: account,
+        to: FWA_ADDRESS,
+        data: encodeData(SELECTORS.updateBacking, [BigInt(it.listingId), newWei]),
+        value: newWei > it.backing ? newWei - it.backing : 0n,
+      });
+      const receipt = await waitForReceipt(hash);
+      if (receipt.status === '0x0') throw new Error('reprice reverted');
+      if (!this.alive) return;
+      this.lastSweep = 0;
+      this.setState((prev) => ({
+        txBusy: null,
+        items: prev.items.map((x) => (x.listingId === it.listingId ? { ...x, backing: newWei } : x)),
+      }));
     } catch (e) {
       if (!this.alive) return;
       const msg = e && e.code === 4001 ? 'rejected in wallet' : String((e && e.message) || e);
@@ -255,7 +410,7 @@ export class MyDeposits extends Component {
       if (raw && word(raw, 10) === LISTING_ACTIVE
         && wordAddr(raw, 1).toLowerCase() === account.toLowerCase()) {
         const pendRaw = res[fresh.length + i];
-        live.push({ ...f, backing: word(raw, 5), pending: pendRaw ? word(pendRaw, 0) : 0n });
+        live.push({ ...f, collection: wordAddr(raw, 0), tokenId: word(raw, 3).toString(), backing: word(raw, 5), pending: pendRaw ? word(pendRaw, 0) : 0n, fwaPending: 0n, cap: undefined });
       }
     });
     if (!live.length || !this.alive || this.state.account !== account) return;
@@ -277,11 +432,13 @@ export class MyDeposits extends Component {
   }
 
   render() {
-    const { account, items, scanning, scannedBlocks, now, feeCredit, pendingTotal, txBusy, txError } = this.state;
+    const { account, items, scanning, scannedBlocks, now, feeCredit, pendingTotal, fwaCredit, fwaPendingTotal, crown, txBusy, txError } = this.state;
     if (!account || (!items.length && !scanning)) return null;
     const total = items.reduce((sum, it) => sum + it.backing, 0n);
     const days = Math.max(1, Math.round(scannedBlocks / 7200));
     const earned = feeCredit + pendingTotal;
+    const fwaEarned = fwaCredit + fwaPendingTotal;
+    const crownLockLeftS = crown && crown.since && IS_V2 ? Math.max(0, crown.since + CROWN_COMMITMENT_S - now / 1000) : 0;
     return (
       <div className="card pull-ticker-card hv-card mine-card grid-margin">
         <div className="d-flex align-items-stretch">
@@ -302,6 +459,17 @@ export class MyDeposits extends Component {
                 {txBusy ? txBusy + '…' : 'withdraw earnings · ' + fmtEth(earned) + ' ETH'}
               </button>
             )}
+            {fwaEarned > 0n && (
+              <button
+                type="button"
+                className="btn btn-outline-info mine-withdraw mt-1"
+                disabled={!!txBusy}
+                title="FWA rewards across your listings (weighted by √backing) — claims the accruals into your credit, then withdraws (up to two wallet prompts, both on the rewards module)"
+                onClick={() => this.claimFwa()}
+              >
+                {txBusy && /FWA/.test(txBusy) ? txBusy + '…' : 'claim FWA · ' + fmtNum(Math.round(Number(fwaEarned) / 1e18))}
+              </button>
+            )}
             {txError && <div className="small text-danger mine-tx-error">{txError}</div>}
           </div>
           <div className="pull-ticker-strip">
@@ -309,8 +477,22 @@ export class MyDeposits extends Component {
               ? <span className="text-muted pl-3">scanning your deposits…</span>
               : items.slice(0, MAX_TILES).map((it) => {
                 const os = openSeaUrl(it.collection, it.tokenId);
+                const isCrown = crown && crown.listingId === it.listingId;
+                const overCap = IS_V2 && it.cap && it.backing > it.cap;
+                let wdTitle = 'withdraw THIS listing — #' + it.listingId + ' leaves the pool, NFT + ' + fmtEth(it.backing, 3) + ' ETH backing return to you';
+                if (isCrown && crownLockLeftS > 0) wdTitle += '. CROWN COMMITMENT: leaving within 12h of taking the crown costs 1% (' + fmtEth(it.backing / 100n, 4) + ' ETH) — free in ' + fmtAge(crownLockLeftS);
                 return (
                 <div key={it.listingId} className="pull-tilewrap">
+                  {isCrown && (
+                    <span className={'crown-badge ' + (crownLockLeftS > 0 ? 'text-warning' : 'text-success')} title={'your listing holds the crown' + (crownLockLeftS > 0 ? ' — ' + fmtAge(crownLockLeftS) + ' left on the 12h commitment (early exit costs 1%)' : IS_V2 ? ' — commitment served, free to leave' : '')}>
+                      <i className="mdi mdi-crown"></i>
+                    </span>
+                  )}
+                  {overCap && (
+                    <span className="cap-badge text-danger" title={'backing ' + fmtEth(it.backing, 3) + ' ETH is above this collection\'s oracle ceiling (' + fmtEth(it.cap, 3) + ' ETH) — anyone can kick it during a purchase pause (11:45 / 23:45 UTC). You get NFT + full backing back, but lose the spot. Reprice below the ceiling to stay.'}>
+                      <i className="mdi mdi-alert"></i>
+                    </span>
+                  )}
                   <a
                     className="pull-ticker-item hv-item"
                     href={ETHERSCAN + '/tx/' + it.tx}
@@ -346,10 +528,19 @@ export class MyDeposits extends Component {
                     type="button"
                     className="wd-badge"
                     disabled={!!txBusy}
-                    title={'withdraw THIS listing — #' + it.listingId + ' leaves the pool, NFT + ' + fmtEth(it.backing, 3) + ' ETH backing return to you'}
+                    title={wdTitle}
                     onClick={() => this.withdrawListing(it.listingId)}
                   >
                     <i className="mdi mdi-eject"></i>
+                  </button>
+                  <button
+                    type="button"
+                    className="rp-badge"
+                    disabled={!!txBusy}
+                    title={'re-price #' + it.listingId + ' — change its ETH backing (raise: pay the difference; lower: get it back). Lower backing = pulled sooner, higher = longer in the pool' + (IS_V2 && it.cap ? ' · ceiling ' + fmtEth(it.cap, 3) + ' ETH' : '')}
+                    onClick={() => this.reprice(it)}
+                  >
+                    <i className="mdi mdi-swap-vertical"></i>
                   </button>
                 </div>
                 );

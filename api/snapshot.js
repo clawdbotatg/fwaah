@@ -1,31 +1,37 @@
 // GET /livedatasnapshot.json (rewritten here, see vercel.json) — one JSON
-// document with the FWA pool's live state, built for LLM agents. The agent
+// document with an FWA main pool's live state, built for LLM agents. The agent
 // skill at /skill.md tells an agent to curl this instead of speaking raw
 // JSON-RPC; everything is pre-decoded and labeled.
 //
+// Two pools are live: V2 (default) and the legacy V1 — `?pool=v1` switches.
+// They are separate deployments sharing only the FWA token.
+//
 // Edge-cached (s-maxage=60, SWR 600) so any number of agents polling it cost
-// at most one upstream refresh a minute. No hotlink guard: unlike /api/rpc
-// and /api/meta this endpoint exists to be fetched from anywhere, and the
-// cache bounds the damage.
+// at most one upstream refresh a minute per pool. No hotlink guard: unlike
+// /api/rpc and /api/meta this endpoint exists to be fetched from anywhere, and
+// the cache bounds the damage.
 //
 // Upstream: RPC_UPSTREAM (Vercel env) in prod; NODE_RPC_URL (.env) via the
 // setupProxy dev twin, so forks at home serve their own snapshot too.
 
 const {
-  FWA_ADDRESS, DEPLOY_BLOCK, SNAPSHOT_BLOCK, SELECTORS, TOPICS, CONFIG_LABELS,
-  KNOB_SNAPSHOT, WHITELIST_SNAPSHOT,
+  POOLS, poolFromReq, SELECTORS, TOPICS, CONFIG_LABELS, applyConfigSet,
   toBig, toNum, word, wordAddr, decodeString, fmtEth,
 } = require('./_fwa');
 
 const DAY_BLOCKS = 7200; // ~24h at 12s blocks
-
 const ZERO = /^0x0{40}$/;
+
+// V2 purchase blackout: block.timestamp % 12h >= 11h45m (fixed in the contract)
+const BLACKOUT_PERIOD_S = 12 * 3600;
+const BLACKOUT_START_S = 11 * 3600 + 45 * 60;
+const CROWN_COMMITMENT_S = 12 * 3600;
 
 function rpcBody(calls) {
   return calls.map((c, i) => ({ jsonrpc: '2.0', id: i + 1, method: c[0], params: c[1] }));
 }
 
-async function rpc(upstream, calls) {
+async function rpc(upstream, calls, safe = false) {
   const res = await fetch(upstream, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -37,7 +43,10 @@ async function rpc(upstream, calls) {
   (Array.isArray(json) ? json : [json]).forEach((r) => { byId[r.id] = r; });
   return calls.map((c, i) => {
     const r = byId[i + 1];
-    if (!r || r.error) throw new Error((r && r.error && r.error.message) || 'rpc error on ' + c[0]);
+    if (!r || r.error) {
+      if (safe) return null;
+      throw new Error((r && r.error && r.error.message) || 'rpc error on ' + c[0]);
+    }
     return r.result;
   });
 }
@@ -48,6 +57,7 @@ function call(to, selector, argWords = []) {
 }
 
 const sourcify = (addr) => `https://sourcify.dev/server/v2/contract/1/${addr}?fields=sources,abi`;
+const iso = (s) => new Date(s * 1000).toISOString();
 
 module.exports = async (req, res) => {
   const upstream = process.env.RPC_UPSTREAM || process.env.NODE_RPC_URL;
@@ -55,6 +65,10 @@ module.exports = async (req, res) => {
     res.status(500).json({ error: 'no RPC upstream configured (RPC_UPSTREAM / NODE_RPC_URL)' });
     return;
   }
+  const pool = poolFromReq(req);
+  const isV2 = pool.id === 'v2';
+  const FWA_ADDRESS = pool.address;
+  const other = isV2 ? POOLS.v1 : POOLS.v2;
 
   try {
     // ---- batch 1: block, pool balance, every core view with a getter ----
@@ -65,8 +79,9 @@ module.exports = async (req, res) => {
       'finalizeWindow', 'ownerAcquisitionFeeBps', 'ownerSettlementFeeBps', 'topListingShareBps',
       'topThresholdBps', 'retainedToProtocol', 'selectionSlippageBps', 'selectionTimeoutBlocks',
       'settlementDiscountBps', 'settlementWindow',
+      ...(isV2 ? ['topListingSince', 'tokenSettlementDiscountBps', 'oracleCeilingPremiumBps', 'maxOracleAge', 'minOracleChallengePeriod', 'isPurchaseBlackout', 'vrfServiceFee'] : []),
     ];
-    const addrKeys = ['owner', 'payoutAddress', 'token', 'rewards', 'vrfService'];
+    const addrKeys = ['owner', 'payoutAddress', 'token', 'rewards', ...(isV2 ? ['floorOracle', 'fwairLaunchRegistry'] : ['vrfService'])];
     const r1 = await rpc(upstream, [
       ['eth_blockNumber', []],
       ['eth_getBalance', [FWA_ADDRESS, 'latest']],
@@ -79,12 +94,23 @@ module.exports = async (req, res) => {
     numKeys.forEach((k, i) => { v[k] = toBig(r1[2 + i]); });
     addrKeys.forEach((k, i) => { v[k] = wordAddr(r1[2 + numKeys.length + i], 0); });
 
-    // ---- batch 2: crown listing, emission module, admin-event overlay ----
+    // ---- batch 2: crown listing, rewards module, admin-event overlay, 24h feed ----
     const calls2 = [];
     const hasTop = v.topListingId !== 0n;
     if (hasTop) calls2.push(call(FWA_ADDRESS, SELECTORS.listings, [v.topListingId]));
     const hasRewards = v.rewards && !ZERO.test(v.rewards);
-    if (hasRewards) {
+    if (hasRewards && isV2) {
+      calls2.push(
+        call(v.rewards, SELECTORS.epochStart),
+        call(v.rewards, SELECTORS.currentEpoch),
+        call(v.token, SELECTORS.totalSupply),
+        call(v.rewards, SELECTORS.tokenBuyAllowanceTotal),
+        call(v.rewards, SELECTORS.sqrtBackingTotal),
+        call(v.rewards, SELECTORS.builderRewardBps),
+        call(v.rewards, SELECTORS.buyback),
+        call(v.token, SELECTORS.balanceOf, [v.rewards]),
+      );
+    } else if (hasRewards) {
       calls2.push(
         call(v.rewards, SELECTORS.emissionStart),
         call(v.rewards, SELECTORS.emissionDuration),
@@ -95,18 +121,20 @@ module.exports = async (req, res) => {
         call(v.rewards, SELECTORS.tokenBuyAllowanceTotal),
       );
     }
+    const rewardsCallCount = hasRewards ? (isV2 ? 8 : 7) : 0;
     // admin events since the baked snapshot block, chunked under the 100k-block
     // getLogs cap a home node enforces (rare events — each chunk is tiny)
     const CHUNK = 90000;
     const ranges = [];
-    for (let from = SNAPSHOT_BLOCK + 1; from <= latest; from += CHUNK) {
+    for (let from = pool.snapshotBlock + 1; from <= latest; from += CHUNK) {
       ranges.push([from, Math.min(from + CHUNK - 1, latest)]);
     }
+    const adminTopics = [TOPICS.ConfigSet, TOPICS.CollectionWhitelistSet, ...(isV2 ? [TOPICS.OracleExemptionSet] : [])];
     calls2.push(...ranges.map(([from, to]) => ['eth_getLogs', [{
       address: FWA_ADDRESS,
       fromBlock: '0x' + from.toString(16),
       toBlock: '0x' + to.toString(16),
-      topics: [[TOPICS.ConfigSet, TOPICS.CollectionWhitelistSet]],
+      topics: [adminTopics],
     }]]));
 
     // 24h activity feed, chunked so a home node's ~20k-results getLogs cap holds
@@ -115,6 +143,7 @@ module.exports = async (req, res) => {
       TOPICS.DepositorBidAccepted, TOPICS.DepositorBidAcceptedAsTokens,
       TOPICS.AcquisitionExpired, TOPICS.AcquisitionRefundedNoListing, TOPICS.AcquisitionRefundedSlippage,
       TOPICS.NFTListed, TOPICS.ListingWithdrawn, TOPICS.UnsettledFinalized,
+      ...(isV2 ? [TOPICS.ListingKicked, TOPICS.EarlyCrownExitFee] : []),
     ];
     const feedStart = Math.max(latest - DAY_BLOCKS, 0);
     const feedRanges = [];
@@ -141,56 +170,95 @@ module.exports = async (req, res) => {
         backingWei: word(raw, 5),
       };
     }
-    let emission = null;
-    if (hasRewards) {
+    let emission = null; // V1
+    let rw = null; // V2
+    if (hasRewards && isV2) {
+      const [startH, epochH, supplyH, allowH, sqrtH, builderH, buybackH, balH] = r2.slice(i2, i2 + 8);
+      rw = {
+        start: toNum(startH), epoch: toBig(epochH), supply: toBig(supplyH), allowance: toBig(allowH),
+        sqrtBackingTotal: toBig(sqrtH), builderRewardBps: toBig(builderH), buyback: wordAddr(buybackH, 0), moduleBalance: toBig(balH),
+      };
+    } else if (hasRewards) {
       const [startH, durH, rateH, potH, supplyH, buyingH, buyPoolH] = r2.slice(i2, i2 + 7);
-      i2 += 7;
       emission = {
         start: toNum(startH), duration: toNum(durH),
         ratePerSec: toBig(rateH), dailyPot: toBig(potH), supply: toBig(supplyH),
         buysOpen: toBig(buyingH) === 1n, buybackPool: toBig(buyPoolH),
       };
     }
+    i2 += rewardsCallCount;
     const adminLogs = [].concat(...r2.slice(i2, feedRangeStart));
     const feedLogs = [].concat(...r2.slice(feedRangeStart));
 
-    // overlay the baked knob/whitelist snapshot with anything that changed since
-    const knobs = { ...KNOB_SNAPSHOT };
-    const wl = new Map(WHITELIST_SNAPSHOT);
+    // overlay the baked knob/whitelist/exemption snapshot with anything that changed since
+    const knobs = { ...pool.knobs };
+    const wl = new Map(pool.whitelist);
+    const exempt = new Set(pool.oracleExempt);
     adminLogs.forEach((log) => {
       if (log.topics[0] === TOPICS.ConfigSet) {
-        const key = Number(BigInt(log.topics[1]));
-        const value = word(log.data, 0);
-        if (key === 13) knobs.pullSurchargeBps = value;
-        else if (key === 22) knobs.minBacking = value;
-        else if (key === 41) knobs.pullsEnabled = value !== 0n;
-        else if (key === 42) knobs.withdrawOnly = value !== 0n;
-        else if (key === 43) knobs.whitelistEnabled = value !== 0n;
-        else if (key === 44) knobs.sellBackAsTokens = value !== 0n;
-        else if (key === 12) knobs.maxPullsPerTx = value;
-        else if (key === 62) knobs.whitelistManager = wordAddr(log.data, 0);
+        applyConfigSet(knobs, Number(BigInt(log.topics[1])), word(log.data, 0));
       } else if (log.topics[0] === TOPICS.CollectionWhitelistSet) {
         const addr = wordAddr(log.topics[1], 0);
         if (word(log.data, 0) === 0n) wl.delete(addr);
         else if (!wl.has(addr)) wl.set(addr, null); // name resolved below
+      } else if (log.topics[0] === TOPICS.OracleExemptionSet) {
+        const addr = wordAddr(log.topics[1], 0);
+        if (word(log.data, 0) === 0n) exempt.delete(addr);
+        else exempt.add(addr);
       }
     });
 
-    // ---- batch 3: name() for the crown collection + any new whitelist entries ----
+    // ---- batch 3: name() for the crown collection + any new whitelist entries,
+    //      plus the V2 epoch pot / buyback params (need currentEpoch from batch 2) ----
     const unnamed = [...wl.entries()].filter(([, name]) => !name).map(([addr]) => addr);
     const nameTargets = [...unnamed];
     if (top && !nameTargets.includes(top.collection)) nameTargets.push(top.collection);
-    if (nameTargets.length) {
-      const r3 = await rpc(upstream, nameTargets.map((a) => call(a, SELECTORS.name)));
-      nameTargets.forEach((a, i) => {
-        const name = decodeString(r3[i]);
-        if (wl.has(a) && !wl.get(a)) wl.set(a, name || a);
-        if (top && top.collection === a) top.collectionName = wl.get(a) || name || a;
-      });
-    } else if (top) {
-      top.collectionName = wl.get(top.collection) || top.collection;
+    const calls3 = nameTargets.map((a) => call(a, SELECTORS.name));
+    const hasBuyback = rw && !ZERO.test(rw.buyback);
+    if (rw) {
+      calls3.push(
+        call(v.rewards, SELECTORS.purchaserEpochPot, [rw.epoch]),
+        call(v.rewards, SELECTORS.acquisitionsInEpoch, [rw.epoch]),
+        call(v.rewards, SELECTORS.pendingAcquisitionsInEpoch, [rw.epoch]),
+      );
+      if (rw.epoch > 0n) {
+        calls3.push(
+          call(v.rewards, SELECTORS.purchaserEpochPot, [rw.epoch - 1n]),
+          call(v.rewards, SELECTORS.acquisitionsInEpoch, [rw.epoch - 1n]),
+        );
+      }
+      if (hasBuyback) {
+        calls3.push(
+          call(rw.buyback, SELECTORS.maxEthPerBuy), call(rw.buyback, SELECTORS.callerRewardBps),
+          call(rw.buyback, SELECTORS.routeDepositorBps), call(rw.buyback, SELECTORS.routePurchaserBps),
+          call(rw.buyback, SELECTORS.routeBurnBps), call(rw.buyback, SELECTORS.paused),
+          call(rw.buyback, SELECTORS.lastBuybackBlock), ['eth_getBalance', [rw.buyback, 'latest']],
+        );
+      }
     }
+    const r3 = calls3.length ? await rpc(upstream, calls3, true) : [];
+    nameTargets.forEach((a, i) => {
+      const name = r3[i] ? decodeString(r3[i]) : null;
+      if (wl.has(a) && !wl.get(a)) wl.set(a, name || a);
+      if (top && top.collection === a) top.collectionName = wl.get(a) || name || a;
+    });
     if (top && !top.collectionName) top.collectionName = wl.get(top.collection) || top.collection;
+    let epochNow = null;
+    let epochPrev = null;
+    let buyback = null;
+    if (rw) {
+      let j = nameTargets.length;
+      epochNow = { pot: toBig(r3[j++]), pulls: toBig(r3[j++]), pending: toBig(r3[j++]) };
+      if (rw.epoch > 0n) epochPrev = { pot: toBig(r3[j++]), pulls: toBig(r3[j++]) };
+      if (hasBuyback) {
+        buyback = {
+          address: rw.buyback,
+          maxEthPerBuy: toBig(r3[j++]), callerRewardBps: toBig(r3[j++]),
+          depositorBps: toBig(r3[j++]), purchaserBps: toBig(r3[j++]), burnBps: toBig(r3[j++]),
+          paused: toBig(r3[j++]) === 1n, lastBuybackBlock: toNum(r3[j++]), balance: toBig(r3[j++]),
+        };
+      }
+    }
 
     const nowS = Math.floor(Date.now() / 1000);
     const emEnd = emission && emission.start ? emission.start + emission.duration : null;
@@ -204,10 +272,11 @@ module.exports = async (req, res) => {
     };
 
     // ---- 24h activity: totals, outcome tally, per-pull + per-deposit detail ----
-    const tally = { pulls: 0, pullFeesWei: 0n, deposits: 0, withdrawals: 0 };
+    const tally = { pulls: 0, pullFeesWei: 0n, deposits: 0, withdrawals: 0, kicked: 0, crownExitFees: 0 };
     const outcomes = { allocated: 0, kept: 0, soldBackForEth: 0, soldBackForFwa: 0, relisted: 0, refundedOrExpired: 0, defaulted: 0 };
     const pullsById = new Map(); // listingId -> pull record (last allocation wins)
     const depositEvents = [];
+    const kickEvents = [];
     const collectionsSeen = new Map(); // listingId -> {collection, tokenId} from NFTListed
     feedLogs.forEach((log) => {
       const t0 = log.topics[0];
@@ -262,6 +331,18 @@ module.exports = async (req, res) => {
         depositEvents.push(rec);
       } else if (t0 === T.ListingWithdrawn) {
         tally.withdrawals += 1;
+      } else if (t0 === T.ListingKicked) {
+        tally.kicked += 1;
+        kickEvents.push({
+          ...blockMeta(log),
+          listingId: topicNum(log.topics[1]),
+          kickedBy: topicAddr(log.topics[2]),
+          depositor: topicAddr(log.topics[3]),
+          backingEth: fmtEth(word(log.data, 0)),
+          oracleCapEth: fmtEth(word(log.data, 1)),
+        });
+      } else if (t0 === T.EarlyCrownExitFee) {
+        tally.crownExitFees += 1;
       }
     });
 
@@ -308,33 +389,74 @@ module.exports = async (req, res) => {
         return { ...base, change: (CONFIG_LABELS[key] || 'config key ' + key) + ' → ' + value.toString() };
       }
       const addr = wordAddr(log.topics[1], 0);
+      if (log.topics[0] === T.OracleExemptionSet) {
+        return { ...base, change: 'oracle exemption: ' + (wlName(addr) || addr) + (word(log.data, 0) === 0n ? ' revoked' : ' granted (no backing ceiling)') };
+      }
       return { ...base, change: 'whitelist: ' + (wlName(addr) || addr) + (word(log.data, 0) === 0n ? ' removed' : ' allowed') };
     });
 
+    // V2 blackout clock (wall time; the contract uses block.timestamp)
+    let purchaseBlackout = null;
+    if (isV2) {
+      const t = nowS % BLACKOUT_PERIOD_S;
+      const active = t >= BLACKOUT_START_S;
+      const secondsToChange = active ? BLACKOUT_PERIOD_S - t : BLACKOUT_START_S - t;
+      purchaseBlackout = {
+        note: 'V2 refuses NEW purchases daily 11:45–12:00 and 23:45–00:00 UTC (fixed in the contract). Settlement, exits and VRF callbacks keep working; listings above their oracle ceiling can be kicked only inside these windows.',
+        windowsUtc: ['11:45–12:00', '23:45–00:00'],
+        active,
+        contractSaysActive: v.isPurchaseBlackout === 1n,
+        secondsToChange,
+        changesAt: iso(nowS + secondsToChange),
+      };
+    }
+
     const out = {
-      about: 'FWAAH! live snapshot of the FWA pool (Ethereum mainnet). Field guide + how to go deeper: https://fwaah.com/skill.md',
+      about: 'FWAAH! live snapshot of the FWA ' + pool.label + ' main pool (Ethereum mainnet). Field guide + how to go deeper: https://fwaah.com/skill.md',
       generatedAt: new Date().toISOString(),
       block: latest,
       chainId: 1,
+      pool: {
+        id: pool.id,
+        label: pool.label,
+        title: pool.title,
+        note: isV2
+          ? 'V2 (live since 2026-09-16) is a separate deployment from V1, not an upgrade. V1 keeps running with its own listings; the official site migrates by withdrawing from V1 and depositing into V2. Add ?pool=v1 to this URL for the V1 snapshot.'
+          : 'V1 is the legacy main pool — still live with its own listings, fees and (ended) emission. V2 is the current pool: drop ?pool=v1 for its snapshot.',
+        officialSite: pool.site,
+        officialDocs: pool.docs,
+        otherPoolSnapshot: 'https://fwaah.com/livedatasnapshot.json' + (isV2 ? '?pool=v1' : ''),
+        otherPoolId: other.id,
+      },
       contracts: {
         core: FWA_ADDRESS,
         token: v.token,
         rewards: v.rewards,
-        vrfService: v.vrfService,
+        vrfService: isV2 ? pool.contracts.vrfService : v.vrfService,
+        ...(isV2 ? {
+          floorOracle: v.floorOracle,
+          buyback: buyback ? buyback.address : pool.contracts.buyback,
+          purchaseNotifier: pool.contracts.purchaseNotifier,
+          fwairLaunchManager: ZERO.test(v.fwairLaunchRegistry) ? null : v.fwairLaunchRegistry,
+          punkLister: pool.contracts.punkLister,
+        } : {}),
         owner: v.owner,
         payoutAddress: v.payoutAddress,
         whitelistManager: knobs.whitelistManager,
-        deployBlock: DEPLOY_BLOCK,
+        deployBlock: pool.deployBlock,
         sourceAndAbi: {
           core: sourcify(FWA_ADDRESS),
           token: sourcify(v.token),
           rewards: sourcify(v.rewards),
+          ...(isV2 ? { floorOracle: sourcify(v.floorOracle) } : {}),
         },
       },
-      pool: {
+      poolStats: {
         activeListings: Number(v.activeListingCount),
         poolEth: fmtEth(balance),
-        pullPriceEth: fmtEth(v.acquisitionFee),
+        pullPriceEth: fmtEth(v.acquisitionFee + (isV2 ? v.vrfServiceFee : 0n)),
+        pullPoolFeeEth: fmtEth(v.acquisitionFee),
+        ...(isV2 ? { pullVrfFeeEth: fmtEth(v.vrfServiceFee) } : {}),
         pendingPulls: Number(v.pendingAcquisitionCount),
         unsettledPulls: Number(v.unsettledAcquisitionCount),
         nextListingId: Number(v.nextListingId),
@@ -345,7 +467,8 @@ module.exports = async (req, res) => {
         accruedOwnerFeesEth: fmtEth(v.accruedOwnerFees),
       },
       crown: top ? {
-        note: 'top-backed listing — earns crownTitheBps of every pull into its pot; takeover needs +crownTakeoverThresholdBps more backing',
+        note: 'top-backed listing — earns crownTitheBps of every pull into its pot; takeover needs +crownTakeoverThresholdBps more backing'
+          + (isV2 ? '. V2 crown commitment: withdrawing or shrinking it within 12h of taking it costs 1% of its full backing (being pulled, out-bid or oracle-kicked is free).' : ''),
         listingId: Number(v.topListingId),
         potEth: fmtEth(v.topListingPot),
         collection: top.collection,
@@ -353,23 +476,32 @@ module.exports = async (req, res) => {
         tokenId: top.tokenId,
         depositor: top.depositor,
         backingEth: fmtEth(top.backingWei),
+        ...(isV2 && v.topListingSince ? {
+          heldSince: iso(Number(v.topListingSince)),
+          commitmentEndsAt: iso(Number(v.topListingSince) + CROWN_COMMITMENT_S),
+          commitmentServed: nowS >= Number(v.topListingSince) + CROWN_COMMITMENT_S,
+          earlyExitFeeBps: 100,
+        } : {}),
       } : null,
       activity24h: {
         pulls: tally.pulls,
         pullFeesEth: fmtEth(tally.pullFeesWei),
         deposits: tally.deposits,
         withdrawals: tally.withdrawals,
+        ...(isV2 ? { oracleKicks: tally.kicked, crownEarlyExitFees: tally.crownExitFees } : {}),
         pullOutcomes: outcomes,
       },
       recentPulls,
       topPulls24h,
       recentDeposits,
+      ...(isV2 ? { recentKicks: kickEvents.slice(-10).reverse() } : {}),
       recentRuleChanges,
       rules: {
         pullSurchargeBps: Number(knobs.pullSurchargeBps),
         sellBackPayoutBps: Number(v.settlementDiscountBps),
+        ...(isV2 ? { sellBackAsFwaBudgetBps: Number(v.tokenSettlementDiscountBps) } : {}),
         ownerCutOfPullsBps: Number(v.ownerAcquisitionFeeBps),
-        ownerCutOfSellBacksBps: Number(v.ownerSettlementFeeBps),
+        ownerCutOfKeptNftsBps: Number(v.ownerSettlementFeeBps),
         crownTitheBps: Number(v.topListingShareBps),
         crownTakeoverThresholdBps: Number(v.topThresholdBps),
         retainedSliceToProtocol: v.retainedToProtocol !== 0n,
@@ -379,12 +511,26 @@ module.exports = async (req, res) => {
         selectionTimeoutBlocks: Number(v.selectionTimeoutBlocks),
         minDepositBackingEth: fmtEth(knobs.minBacking),
         maxPullsPerTx: Number(knobs.maxPullsPerTx),
+        protocolFeesToBuybackBps: Number(knobs.protocolFeeToTokenBps),
         pullsEnabled: knobs.pullsEnabled,
         withdrawOnlyMode: knobs.withdrawOnly,
+        sellBackAsFwaEnabled: knobs.sellBackAsTokens,
+        ...(isV2 ? {
+          oracleCeiling: {
+            note: 'unless the collection is oracle-exempt (see whitelist.oracleExempt) or the listing is a recognised FWAIR launch, backing must be ≤ the collection\'s floor-oracle ask × (1 + premium); a listing later above its ceiling can be kicked during a purchase blackout (full backing + NFT back to the depositor, no fee)',
+            premiumBps: Number(v.oracleCeilingPremiumBps),
+            maxQuoteAgeSeconds: Number(v.maxOracleAge),
+            minChallengePeriodSeconds: Number(v.minOracleChallengePeriod),
+          },
+          crownCommitment: { seconds: CROWN_COMMITMENT_S, earlyExitFeeBps: 100, fixed: true },
+        } : {}),
       },
+      ...(isV2 ? { purchaseBlackout } : {}),
+      // V1: a fixed 15-day emission. V2: no schedule — FWA arrives from buybacks
+      // and is split by √backing (depositors) and per-24h-epoch shares (pullers).
       emission: emission && emission.start ? {
-        startsAt: new Date(emission.start * 1000).toISOString(),
-        endsAt: emEnd ? new Date(emEnd * 1000).toISOString() : null,
+        startsAt: iso(emission.start),
+        endsAt: emEnd ? iso(emEnd) : null,
         secondsRemaining: emEnd ? Math.max(0, emEnd - nowS) : null,
         ended: emEnd ? nowS >= emEnd : false,
         depositorFwaPerDay: Math.round(Number(emission.ratePerSec) / 1e18 * 86400),
@@ -393,10 +539,46 @@ module.exports = async (req, res) => {
         externalBuysOpen: emission.buysOpen,
         buybackPoolEth: fmtEth(emission.buybackPool),
       } : null,
+      ...(rw && rw.start ? {
+        rewards: {
+          note: 'V2 has no fixed emission: FWA reaches the rewards module whenever the token\'s buyback route fires. Depositors split it by √backing (claimDepositorTokens / withdrawTokens); each successful pull earns one share of its 24h epoch\'s pot (claimEpochTokens once the epoch closes and every pull in it resolved). Apps routing pulls through their own contract earn builderRewardBps of protocol fees as an FWA-buy allowance.',
+          epochsStartedAt: iso(rw.start),
+          currentEpoch: Number(rw.epoch),
+          currentEpochEndsAt: iso(rw.start + (Number(rw.epoch) + 1) * 86400),
+          currentEpochPotFwa: Math.round(Number(epochNow.pot) / 1e18),
+          currentEpochPulls: Number(epochNow.pulls),
+          currentEpochPendingPulls: Number(epochNow.pending),
+          currentEpochFwaPerPull: epochNow.pulls > 0n ? Math.round(Number(epochNow.pot / epochNow.pulls) / 1e18) : null,
+          previousEpoch: epochPrev ? {
+            potFwa: Math.round(Number(epochPrev.pot) / 1e18),
+            pulls: Number(epochPrev.pulls),
+            fwaPerPull: epochPrev.pulls > 0n ? Math.round(Number(epochPrev.pot / epochPrev.pulls) / 1e18) : null,
+          } : null,
+          depositorSqrtBackingTotal: rw.sqrtBackingTotal.toString(),
+          fwaHeldByRewardsModule: Math.round(Number(rw.moduleBalance) / 1e18),
+          ethQueuedForFwaBuys: fmtEth(rw.allowance),
+          builderRewardBps: Number(rw.builderRewardBps),
+          fwaTotalSupply: Math.round(Number(rw.supply) / 1e18),
+          protocolFeeBuyback: buyback ? {
+            address: buyback.address,
+            ethWaiting: fmtEth(buyback.balance),
+            maxEthPerCall: fmtEth(buyback.maxEthPerBuy),
+            callerTipBps: Number(buyback.callerRewardBps),
+            splitBps: { depositors: Number(buyback.depositorBps), purchasers: Number(buyback.purchaserBps), burn: Number(buyback.burnBps) },
+            paused: buyback.paused,
+            lastRunBlock: buyback.lastBuybackBlock,
+            note: 'anyone can call buyback() on this contract to swap the waiting ETH for FWA (≤ maxEthPerCall per call, one block apart) and keep the caller tip; the FWA is routed to the rewards module per splitBps',
+          } : null,
+        },
+      } : {}),
       whitelist: {
         enabled: knobs.whitelistEnabled,
         count: wl.size,
-        collections: [...wl.entries()].map(([address, name]) => ({ address, name })),
+        collections: [...wl.entries()].map(([address, name]) => ({ address, name, ...(isV2 ? { oracleExempt: exempt.has(address) } : {}) })),
+        ...(isV2 ? {
+          oracleExempt: [...exempt],
+          note: 'V2: being whitelisted is necessary but not sufficient — a non-exempt collection also needs a fresh floor-oracle quote, and backing must sit under its ceiling (rules.oracleCeiling)',
+        } : {}),
       },
     };
 

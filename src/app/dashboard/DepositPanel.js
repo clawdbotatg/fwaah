@@ -1,8 +1,8 @@
 import React, { Component } from 'react';
 import {
-  FWA_ADDRESS, SELECTORS, WHITELIST_SNAPSHOT, KNOB_SNAPSHOT,
-  rpcBatch, rpcBatchSafe, ethCall, ethCallTo, encodeData, word, wordAddr, addrTopic, toNum,
-  fmtEth,
+  FWA_ADDRESS, SELECTORS, WHITELIST_SNAPSHOT, KNOB_SNAPSHOT, IS_V2, oracleCeiling,
+  rpcBatch, rpcBatchSafe, ethCall, ethCallTo, encodeData, word, wordAddr, addrTopic, toNum, toBig,
+  fmtEth, fmtAge,
 } from '../fwa/fwa';
 import { injected, onAccountsChanged, autoReconnectAllowed, sendTx, waitForReceipt } from '../fwa/wallet';
 
@@ -21,6 +21,9 @@ export class DepositPanel extends Component {
     tokenId: '',
     backing: '',
     owned: null, // null = loading · {total, ids, partial, scanFailed}
+    // V2 admission for the picked collection: whitelist decision + oracle ceiling
+    // null = loading · { canDeposit, exempt, ask, bid, observedAt, stale, cap }
+    oracle: null,
     busy: null,
     error: null,
     done: null,
@@ -28,6 +31,7 @@ export class DepositPanel extends Component {
 
   componentDidMount() {
     this.alive = true;
+    if (IS_V2) this.loadOracleConfig().then(() => this.fetchOracle(this.state.collection));
     this.offAccounts = onAccountsChanged((accounts) => {
       if (!this.alive) return;
       const account = accounts && accounts[0] ? accounts[0] : null;
@@ -51,8 +55,49 @@ export class DepositPanel extends Component {
   }
 
   pickCollection(collection) {
-    this.setState({ collection, tokenId: '', owned: null, error: null, done: null });
+    this.setState({ collection, tokenId: '', owned: null, oracle: null, error: null, done: null });
     if (this.state.account) this.fetchOwned(this.state.account, collection);
+    if (IS_V2) this.fetchOracle(collection);
+  }
+
+  // V2 wiring read once: the floor oracle's address, the premium over its ask
+  // that caps backing, and how old a quote may be before the pool rejects it
+  async loadOracleConfig() {
+    try {
+      const [oracleRaw, premiumRaw, ageRaw] = await rpcBatch([
+        ethCall(SELECTORS.floorOracle), ethCall(SELECTORS.oracleCeilingPremiumBps), ethCall(SELECTORS.maxOracleAge),
+      ]);
+      this.oracleCfg = { address: wordAddr(oracleRaw, 0), premiumBps: toBig(premiumRaw), maxAgeS: toNum(ageRaw) };
+    } catch (e) { this.oracleCfg = null; }
+  }
+
+  // V2 admission for one collection. Whitelisting is only half of it: unless
+  // the collection is oracle-exempt, the pool also demands a fresh floor quote
+  // and caps backing at ask × (1 + premium) — a deposit outside that reverts.
+  async fetchOracle(collection) {
+    if (!this.oracleCfg) await this.loadOracleConfig();
+    const cfg = this.oracleCfg;
+    if (!cfg) return;
+    try {
+      const [canRaw, exemptRaw, rangeRaw] = await rpcBatchSafe([
+        ethCall(SELECTORS.canDeposit, [collection]),
+        ethCall(SELECTORS.oracleExemptCollections, [collection]),
+        ethCallTo(cfg.address, SELECTORS.getFloorRange, [collection]),
+      ]);
+      if (!this.alive || this.state.collection !== collection) return;
+      const ask = rangeRaw ? word(rangeRaw, 1) : 0n;
+      const observedAt = rangeRaw ? Number(word(rangeRaw, 2)) : 0;
+      const stale = !ask || observedAt + cfg.maxAgeS < Date.now() / 1000;
+      this.setState({
+        oracle: {
+          canDeposit: !!canRaw && word(canRaw, 0) === 1n,
+          exempt: !!exemptRaw && word(exemptRaw, 0) === 1n,
+          ask, bid: rangeRaw ? word(rangeRaw, 0) : 0n, observedAt, stale,
+          cap: ask ? oracleCeiling(ask, cfg.premiumBps) : null,
+          premiumBps: cfg.premiumBps,
+        },
+      });
+    } catch (e) { /* hint stays blank; the contract still enforces it */ }
   }
 
   stale(account, collection) {
@@ -152,6 +197,19 @@ export class DepositPanel extends Component {
       this.setState({ error: 'backing below the ' + fmtEth(KNOB_SNAPSHOT.minBacking) + ' ETH minimum' });
       return;
     }
+    // V2 oracle ceiling — the contract would revert (StaleFloorEstimate /
+    // BackingAboveFloorCap); say why before the wallet prompt
+    const { oracle } = this.state;
+    if (IS_V2 && oracle && !oracle.exempt) {
+      if (oracle.stale) {
+        this.setState({ error: 'no valid floor-oracle quote for this collection — V2 blocks deposits until someone proposes a floor at fwa.fun/oracle' });
+        return;
+      }
+      if (oracle.cap !== null && backingWei > oracle.cap) {
+        this.setState({ error: 'backing above the oracle ceiling: max ' + fmtEth(oracle.cap) + ' ETH (ask ' + fmtEth(oracle.ask) + ' +' + Number(oracle.premiumBps) / 100 + '%)' });
+        return;
+      }
+    }
     try {
       this.setState({ busy: 'checking', error: null, done: null });
       const [ownerRaw, approvedRaw, allRaw, wlRaw] = await rpcBatchSafe([
@@ -198,7 +256,15 @@ export class DepositPanel extends Component {
   }
 
   render() {
-    const { account, collection, tokenId, backing, owned, busy, error, done } = this.state;
+    const { account, collection, tokenId, backing, owned, oracle, busy, error, done } = this.state;
+    // V2 ceiling hint under the backing box
+    let ceilingHint = null;
+    if (IS_V2 && oracle) {
+      if (oracle.exempt) ceilingHint = <span className="text-info">oracle-exempt collection — no backing ceiling</span>;
+      else if (oracle.stale) ceilingHint = <span className="text-warning"><i className="mdi mdi-alert"></i> no valid floor quote — V2 blocks deposits of this collection until one is proposed</span>;
+      else ceilingHint = <span>oracle ask <strong>{fmtEth(oracle.ask, 3)}</strong> ETH (bid {fmtEth(oracle.bid, 3)}, {fmtAge(Date.now() / 1000 - oracle.observedAt)} old) → max backing <strong>{fmtEth(oracle.cap, 3)} ETH</strong></span>;
+      if (!oracle.canDeposit) ceilingHint = <span className="text-danger">the pool says this collection can't be deposited right now</span>;
+    }
     return (
       <div className="card deposit-card grid-margin">
         <div className="card-body py-3">
@@ -251,7 +317,7 @@ export class DepositPanel extends Component {
                   </div>
                 )}
                 <div className="form-group mb-0 mr-2">
-                  <label className="small text-muted mb-1">backing (min {fmtEth(KNOB_SNAPSHOT.minBacking)} ETH)</label>
+                  <label className="small text-muted mb-1">backing (min {fmtEth(KNOB_SNAPSHOT.minBacking)} ETH{IS_V2 && oracle && oracle.cap !== null && !oracle.exempt ? ', max ' + fmtEth(oracle.cap, 3) : ''})</label>
                   <input
                     className="form-control form-control-sm deposit-input"
                     placeholder="0.05"
@@ -281,6 +347,7 @@ export class DepositPanel extends Component {
           {account && owned && owned.ids.length === 0 && !owned.scanFailed && (
             <div className="small text-muted mt-2">this wallet holds none of that collection — pick another</div>
           )}
+          {account && ceilingHint && <div className="small text-muted mt-2">{ceilingHint}</div>}
           {error && <div className="small text-danger mt-2">{error}</div>}
           {done && <div className="small text-success mt-2">{done}</div>}
         </div>

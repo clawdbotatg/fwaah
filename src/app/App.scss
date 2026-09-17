@@ -752,6 +752,27 @@ body:has(.fwaah-fork-banner) .main-panel {
 .deposit-os-link:hover { color: #ffffff; text-decoration: none; }
 
 // per-tile withdraw (eject) badge — mirrors the os-badge on the lower corner
+// pool switch (navbar + page header): quiet link, brightens on hover
+.pool-switch {
+  color: #6c7293;
+  font-size: 0.75rem;
+  font-weight: normal;
+  text-decoration: none;
+  white-space: nowrap;
+  &:hover { color: #0090e7; text-decoration: none; }
+}
+// YOUR DEPOSITS tile badges: crown / over-ceiling markers (top-left), re-price (below eject)
+.mine-card .crown-badge,
+.mine-card .cap-badge {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  font-size: 0.95rem;
+  line-height: 1;
+  text-shadow: 0 0 4px #000;
+  pointer-events: auto;
+}
+.mine-card .cap-badge { left: 22px; }
 .mine-card .wd-badge {
   position: absolute;
   bottom: 8px;
@@ -771,6 +792,29 @@ body:has(.fwaah-fork-banner) .main-panel {
   opacity: 0.75;
 
   &:hover { opacity: 1; border-color: #b966e7; }
+  &:disabled { opacity: 0.3; cursor: default; }
+}
+
+// re-price badge: same chip as eject, sits to its left
+.mine-card .rp-badge {
+  position: absolute;
+  bottom: 8px;
+  right: calc(0.45rem + 32px);
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  color: #0090e7;
+  font-size: 13px;
+  padding: 0;
+  cursor: pointer;
+  opacity: 0.75;
+
+  &:hover { opacity: 1; border-color: #0090e7; }
   &:disabled { opacity: 0.3; cursor: default; }
 }
 

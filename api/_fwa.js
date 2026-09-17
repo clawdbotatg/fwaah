@@ -1,14 +1,73 @@
 // FWA constants + hex decode helpers shared by the api/ functions.
-// Mirrors src/app/fwa/fwa.js — when the knob/whitelist snapshots are
-// regenerated there, regenerate them here too (same block, same values).
+// Mirrors src/app/fwa/fwa.js. The on-chain snapshot (no-getter knobs,
+// whitelist, oracle exemptions) is the SAME pools.json the app imports —
+// regenerate it with `node scripts/snapshot.mjs`; nothing to keep in sync here.
 
-const FWA_ADDRESS = '0xB276F62DB0ce8CA2Ca5bc522695bE604521eAc1c';
-const DEPLOY_BLOCK = 25546793;
-// Knob/whitelist state below verified on-chain as of this block (2026-07-30);
-// ConfigSet / CollectionWhitelistSet events from here to latest overlay it.
-const SNAPSHOT_BLOCK = 25650175;
+const SNAPSHOTS = require('../src/app/fwa/pools.json');
 
-// keccak-256 selectors for the views the snapshot reads
+// static per-pool facts — https://www.fwa.fun/docs/v2-deployments, /docs/deployments
+const POOL_STATIC = {
+  v2: {
+    id: 'v2',
+    label: 'V2',
+    title: 'FWA V2 main pool',
+    site: 'https://www.fwa.fun',
+    docs: 'https://www.fwa.fun/docs/v2',
+    contracts: {
+      vrfService: '0xCACBd874e24B533935176154E990Bf710F56693A',
+      buyback: '0xaba91665cdf921F0f6B33A099337336B324c9793',
+      purchaseNotifier: '0x612dF3a344990F8E53499ec1bC79Be63cFa496D0',
+      whitelistAuthority: '0x0ad3128429242007D58952c65546BA99b9b70146',
+      fwairLaunchManager: '0x716486a7bD6B4d7409fC4F8B52f0B23D2BcFac72',
+      punkLister: '0xb924048A35160B077A85954A049d5CAc29F23ad1',
+    },
+  },
+  v1: {
+    id: 'v1',
+    label: 'V1',
+    title: 'FWA V1 main pool (legacy, still live)',
+    site: 'https://v1.fwa.fun',
+    docs: 'https://www.fwa.fun/docs/v1',
+    contracts: {
+      vrfService: '0xa084c33Fb7a467307452898b8D58165ebd2E5D9f',
+      whitelistAuthority: '0x54B641aC97A9e9375665934b8e7a7D0b2C0E898B',
+      fwairLaunchManager: '0x900252d9A8F9AcC3DD1014C594c91fC33e5A6AAf',
+    },
+  },
+};
+
+function buildPool(id) {
+  const snap = SNAPSHOTS[id];
+  const k = snap.knobs;
+  return {
+    ...POOL_STATIC[id],
+    address: snap.address,
+    deployBlock: snap.deployBlock,
+    snapshotBlock: SNAPSHOTS.snapshotBlock,
+    knobs: {
+      minBacking: BigInt(k.minBacking),
+      pullSurchargeBps: BigInt(k.pullSurchargeBps),
+      maxPullsPerTx: BigInt(k.maxPullsPerTx),
+      protocolFeeToTokenBps: BigInt(k.protocolFeeToTokenBps),
+      pullsEnabled: k.pullsEnabled,
+      withdrawOnly: k.withdrawOnly,
+      whitelistEnabled: k.whitelistEnabled,
+      sellBackAsTokens: k.sellBackAsTokens,
+      whitelistManager: k.whitelistManager,
+    },
+    whitelist: snap.whitelist,
+    oracleExempt: snap.oracleExempt,
+  };
+}
+const POOLS = { v2: buildPool('v2'), v1: buildPool('v1') };
+
+// ?pool=v1|v2 on the request; V2 is the default
+function poolFromReq(req) {
+  const q = String((req.query && req.query.pool) || '').toLowerCase();
+  return POOLS[q] || POOLS.v2;
+}
+
+// keccak-256 selectors for the views the snapshot reads (shared V1/V2 unless tagged)
 const SELECTORS = {
   activeListingCount: '0x4681a7c6',
   acquisitionFee: '0x38f5f005',
@@ -18,6 +77,7 @@ const SELECTORS = {
   unsettledAcquisitionCount: '0x3d21f274',
   topListingId: '0xee35bc33',
   topListingPot: '0xba20687b',
+  topListingSince: '0x9360191e', // V2
   nextListingId: '0xaaccf1ec',
   accruedOwnerFees: '0x7b9aa10f',
   acquisitionEscrowTotal: '0x59d973db',
@@ -37,23 +97,51 @@ const SELECTORS = {
   payoutAddress: '0x5b8d02d7',
   token: '0xfc0c546a',
   rewards: '0x9ec5a894',
-  vrfService: '0x59749e94',
-  // FWARewards / FWAToken views
+  vrfService: '0x59749e94', // V1 only
+  // V2 core
+  tokenSettlementDiscountBps: '0x97d69193',
+  isPurchaseBlackout: '0x4d5fe14c',
+  floorOracle: '0x29dd24c7',
+  oracleCeilingPremiumBps: '0xedfd4c45',
+  maxOracleAge: '0x7c87a993',
+  minOracleChallengePeriod: '0xf2565bde',
+  fwairLaunchRegistry: '0x4146858d',
+  vrfServiceFee: '0xff48b8ae',
+  // FWARewards (V1) / FWAToken views
   emissionStart: '0x513da948',
   emissionDuration: '0x2d9c4dd2',
   depositorRatePerSec: '0xd2b48fff',
   purchaserDailyPot: '0xfb894e65',
   totalSupply: '0x18160ddd',
+  balanceOf: '0x70a08231',
   isBuying: '0x24f0aa72',
   tokenBuyAllowanceTotal: '0xb74d90cd',
+  // FWAV2Rewards views
+  epochStart: '0x15e5a1e5',
+  currentEpoch: '0x76671808',
+  purchaserEpochPot: '0x641a875d',
+  acquisitionsInEpoch: '0x68a9b6ff',
+  pendingAcquisitionsInEpoch: '0xa3cc7a8c',
+  sqrtBackingTotal: '0xd33e5daa',
+  builderRewardBps: '0x6c1f08a9',
+  buyback: '0xf8ec6911',
+  // FWAV2Buyback views
+  maxEthPerBuy: '0x400c5780',
+  callerRewardBps: '0xe3d604c0',
+  routeDepositorBps: '0x87374239',
+  routePurchaserBps: '0x898c6150',
+  routeBurnBps: '0x224212cb',
+  paused: '0x5c975abb',
+  lastBuybackBlock: '0x0741dc4d',
   // ERC721
   name: '0x06fdde03',
 };
 
+// event topic0 hashes (public keccak of the event sigs) — gitleaks:allow
 const TOPICS = {
-  ConfigSet: '0x150110afd46e9924086bf85c855aae25722518b293155bf0ae689dd99a2e88cc', // event topic hash (public) — gitleaks:allow
-  CollectionWhitelistSet: '0x4c4950b9ef6cb1bc030a44fd8dc97dd16083b2731fb3516ed4f0b9cdffcc9527', // event topic hash (public) — gitleaks:allow
-  // activity events (topic hashes are public keccak of the event sigs)
+  ConfigSet: '0x150110afd46e9924086bf85c855aae25722518b293155bf0ae689dd99a2e88cc', // gitleaks:allow
+  CollectionWhitelistSet: '0x4c4950b9ef6cb1bc030a44fd8dc97dd16083b2731fb3516ed4f0b9cdffcc9527', // gitleaks:allow
+  OracleExemptionSet: '0xb2d0f6071086c8df6da3b5d215d8a0e198bd0fbaef5a4bd99df860f827fd5933', // V2 — gitleaks:allow
   AcquisitionRequested: '0xf23e34f4aa4a06ecddd309d9692e7b7ca45b76fd0d5f4ce4f7fbf29731d9abd6', // gitleaks:allow
   NFTAllocated: '0xaf0d8c007926747ede4270a56f69d2e872c3f0d7e1ef7bbc643b3185c50f6758', // gitleaks:allow
   NFTKept: '0xe71c2721f75bef3206b21176a6d26685852a16878249fc84d18f443f959bb8f5', // gitleaks:allow
@@ -66,6 +154,8 @@ const TOPICS = {
   NFTListed: '0x01c953cf171a8c32b553c5b7e0964bae6b2123db065615e54e8425fec3ec16cd', // gitleaks:allow
   ListingWithdrawn: '0x155ad598d62a05a119f984c463f10d75b4fe9b0af1e0fbe0c2b2caaf8e4bdfda', // gitleaks:allow
   UnsettledFinalized: '0x6f4528c508dc00c3d0fb4dcffe0346f48ae4332f18abe3d4eff0b27895997929', // gitleaks:allow
+  ListingKicked: '0x25d3112a6d76bf15c75a68a5afe2ea559e7ef701e0328cfa7697f0c6fd6e96c5', // V2 — gitleaks:allow
+  EarlyCrownExitFee: '0x54481df24baf8652d2c08c9a9de5626c914c23180818e523d3c2a72ac46686d2', // V2 — gitleaks:allow
 };
 
 // human labels for ConfigSet(key, value) — mirrors CONFIG_KEYS in fwa.js
@@ -73,91 +163,34 @@ const CONFIG_LABELS = {
   1: 'VRF callback gas', 2: 'VRF subscription', 7: 'VRF confirmations',
   10: 'max activations / pull', 11: 'selection timeout (blocks)', 12: 'max pulls / tx',
   13: 'pull surcharge (bps)', 14: 'selection slippage (bps)', 15: 'crown tithe (bps)',
-  16: 'crown takeover threshold (bps)', 17: 'sell-back payout (bps)',
-  18: 'owner cut of pulls (bps)', 19: 'owner cut of sell-backs (bps)',
+  16: 'crown takeover threshold (bps)', 17: 'ETH sell-back payout (bps)',
+  18: 'owner cut of pulls (bps)', 19: 'owner cut of kept NFTs (bps)',
   20: 'winner settlement window (s)', 21: 'finalize window (s)', 22: 'min deposit backing (wei)',
-  23: 'protocol fees → FWA token (bps)', 24: 'VRF key hash', 25: 'staging queue cap',
+  23: 'protocol fees → FWA buyback (bps)', 24: 'VRF key hash', 25: 'staging queue cap',
+  26: 'max oracle quote age (s)', 27: 'min oracle challenge period (s)', 28: 'oracle ceiling premium (bps)',
+  29: 'FWA sell-back budget (bps)',
   40: 'retained slice → protocol', 41: 'pulls enabled', 42: 'withdraw-only mode',
   43: 'deposit whitelist', 44: 'sell-back as FWA tokens',
   60: 'VRF coordinator', 61: 'payout address', 62: 'whitelist manager',
+  63: 'VRF service', 64: 'floor oracle', 65: 'FWAIR launch registry', 66: 'purchase notifier',
 };
 
-// Knobs with no public getter, from ConfigSet history at SNAPSHOT_BLOCK.
-const KNOB_SNAPSHOT = {
-  minBacking: 50000000000000000n, // 0.05 ETH
-  pullsEnabled: true,
-  withdrawOnly: false,
-  whitelistEnabled: true,
-  sellBackAsTokens: true,
-  maxPullsPerTx: 5n,
-  pullSurchargeBps: 1000n,
-  whitelistManager: '0x854352b275cf6a0dffcf2983c986fbe9345e17c3',
-};
-
-// Collections allowed to deposit, as of SNAPSHOT_BLOCK.
-const WHITELIST_SNAPSHOT = [
-  ['0x000000000000003607fce1ac9e043a86675c5c2f', 'CryptoPunks 721'],
-  ['0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d', 'Bored Ape Yacht Club'],
-  ['0x60e4d786628fea6478f785a6d7e704777c86a7c6', 'Mutant Ape Yacht Club'],
-  ['0xed5af388653567af2f388e6224dc7c4b3241c544', 'Azuki'],
-  ['0x5af0d9827e0c53e4799bb226655a1de152a425a5', 'Milady'],
-  ['0xbd3531da5cf5857e7cfaa92426877b022e612cf8', 'Pudgy Penguins'],
-  ['0x524cab2ec69124574082676e6f654a18df49a048', 'Lil Pudgys'],
-  ['0x062e691c2054de82f28008a8ccc6d7a1c8ce060d', 'Pudgy Present'],
-  ['0x8a90cab2b38dba80c64b7734e58ee1db38b8992e', 'Doodles'],
-  ['0x9c8ff314c9bc7f6e59a9d9225fb22946427edc03', 'Nouns'],
-  ['0x7bd29408f11d2bfc23c34f18275bbf23bb716bc7', 'Meebits'],
-  ['0xd4e4078ca3495de5b1d4db434bebc5a986197782', 'Autoglyphs'],
-  ['0x059edd72cd353df5106d2b9cc5ab83a52287ac3a', 'Art Blocks (Squiggle)'],
-  ['0xab00000000002ade39f58f9d8278a31574ffbe77', 'Art Blocks'],
-  ['0x942bc2d3e7a589fe5bd4a5c6ef9727dfd82f5c8a', 'Art Blocks Explorations'],
-  ['0xbdde08bd57e5c9fd563ee7ac61618cb2ecdc0ce0', 'CryptoCitizens'],
-  ['0x1cb1a5e65610aeff2551a50f76a87a7d3fb649c6', 'Cryptoadz'],
-  ['0x42069abfe407c60cf4ae4112bedead391dba1cdb', 'CryptoDickbutts S3'],
-  ['0x036721e5a769cc48b3189efbb9cce4471e8a48b1', 'Checks'],
-  ['0x6339e5e072086621540d0362c4e3cea0d643e114', 'Opepen Edition'],
-  ['0xd774557b647330c91bf44cfeab205095f7e6c367', 'Nakamigos'],
-  ['0x79fcdef22feed20eddacbb2587640e45491b757f', 'mfers'],
-  ['0x2acab3dea77832c09420663b0e1cb386031ba17b', 'DeadFellaz'],
-  ['0xa3aee8bce55beea1951ef834b99f3ac60d1abeeb', 'VeeFriends'],
-  ['0x9378368ba6b85c1fba5b131b530f5f5bedf21a18', 'VeeFriends Series 2'],
-  ['0xb852c6b5892256c264cc2c888ea462189154d8d7', 'Rektguy'],
-  ['0x307af7d28afee82092aa95d35644898311ca5360', 'Chimpers'],
-  ['0xd4b7d9bb20fa20ddada9ecef8a7355ca983cccb1', 'Quirkies'],
-  ['0xc7e67762821b2ed6c0a1f423547b2899822d8650', 'Wolf Game'],
-  ['0x790b2cf29ed4f310bf7641f013c65d4560d28371', 'Otherdeed Expanded'],
-  ['0xe012baf811cf9c05c408e879c399960d1f305903', 'Koda'],
-  ['0x26d7ad0e930b54b84c00daad077ee31ba9e2fb2e', 'Ten Thousand Tokens'],
-  ['0xd1169e5349d1cb9941f3dcba135c8a4b9eacfdde', 'MAX PAIN (XCOPY)'],
-  ['0xc04e0000726ed7c5b9f0045bc0c4806321bc6c65', 'XCORE'],
-  ['0xd92e44ac213b9ebda0178e1523cc0ce177b7fa96', 'Beeple Round 2'],
-  ['0xdd012153e008346591153fff28b0dd6724f0c256', 'Beeple Spring Collection'],
-  ['0x4440732b0d85e2a77dcb2caedfd940154241249a', 'Masks of Luci (Sam Spratt)'],
-  ['0x880af717abba38f31ca21673843636a355fb45f3', 'DRIP DROP (Dave Krugman)'],
-  ['0x8e02d1e68dff0dcebf1cde4ee5f60f1d5a499b1e', 'OCH Genesis Ring'],
-  ['0x7a50abab1af2c15fe9780f4f045820294e1a715c', 'PXL NET'],
-  ['0xdfea2b364db868b1d2601d6b833d74db4de94460', 'RMNANTS'],
-  ['0x7a7b26ec72c8497fd068211979199044deeacc3b', 'REGULAR ANIMALS'],
-  ['0xa471f4da9b79645f4f5358e102c62f59c1329aa5', 'beef brothko'],
-  ['0x03b8d129a8f6dc62a797b59aa5eebb11ad63dada', 'SMOWL'],
-  ['0x75de5bc35248026fabcb2382cf322bc79dfd1a8c', 'Birds'],
-  ['0xb8ea78fcacef50d41375e44e6814ebba36bb33c4', 'Good Vibes Club'],
-  ['0xe18f2247fe4a69c0e2210331b0604f6d10fece9e', 'glitch Gallery'],
-  ['0x4c159520f1117ac58cb5efa1765469cac54dcaab', 'pattern recognition'],
-  ['0x6efc003d3f3658383f06185503340c2cf27a57b6', 'YOU THE REAL MVP'],
-  ['0x614917f589593189ac27ac8b81064cbe450c35e3', 'Letters'],
-  ['0x4024c2083f5457874ec489f7c7332680bb86c92b', 'Farmer'],
-  ['0xd0090373e80236adb6c07cf21b7395938cca46b3', 'everything vs nothing'],
-  ['0xd90829c6c6012e4dde506bd95d7499a04b9a56de', 'BROKEN'],
-  ['0xf8cc77098adb1e8becad7aae11d667aa01db9d7c', 'GeoMetric Pepes'],
-  ['0xd716473c8eb83a2102def2b6390d9dfe74b2f580', 'Wrappers'],
-  ['0x8fe1a377b83921fe1429adb1b8fbfecd45de9cd8', 'fwogs'],
-  ['0xd16809c0a7d82c9e7552a01fd608fff90efb564f', 'RCS'],
-  ['0xd83b6493ecebc29a6da555935d1b8572a14fc989', 'Ethos Validators'],
-  ['0x0427743df720801825a5c82e0582b1e915e0f750', '0xmons'],
-  ['0x727c739f07a89f11e883fe0f34937c55e4c3d74a', 'FWA Token Packs'],
-  ['0x470879abd61fdca91436fe27ed87db2c8650f3e7', 'Locked FWA Token Packs'],
-];
+// apply one ConfigSet(key, value) to a knobs object — mirrors applyConfigSet in fwa.js
+function applyConfigSet(knobs, key, value) {
+  switch (key) {
+    case 12: knobs.maxPullsPerTx = value; break;
+    case 13: knobs.pullSurchargeBps = value; break;
+    case 22: knobs.minBacking = value; break;
+    case 23: knobs.protocolFeeToTokenBps = value; break;
+    case 41: knobs.pullsEnabled = value !== 0n; break;
+    case 42: knobs.withdrawOnly = value !== 0n; break;
+    case 43: knobs.whitelistEnabled = value !== 0n; break;
+    case 44: knobs.sellBackAsTokens = value !== 0n; break;
+    case 62: knobs.whitelistManager = value === 0n ? null : '0x' + value.toString(16).padStart(40, '0'); break;
+    default: break;
+  }
+  return knobs;
+}
 
 // ---- hex decode helpers (32-byte word ABI layout) ----
 
@@ -202,7 +235,6 @@ function fmtEth(wei) {
 }
 
 module.exports = {
-  FWA_ADDRESS, DEPLOY_BLOCK, SNAPSHOT_BLOCK, SELECTORS, TOPICS, CONFIG_LABELS,
-  KNOB_SNAPSHOT, WHITELIST_SNAPSHOT,
+  POOLS, poolFromReq, SELECTORS, TOPICS, CONFIG_LABELS, applyConfigSet,
   toBig, toNum, word, wordAddr, decodeString, fmtEth,
 };

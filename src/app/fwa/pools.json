@@ -1,0 +1,679 @@
+{
+  "generatedAt": "2026-09-17T19:19:26.457Z",
+  "snapshotBlock": 25999258,
+  "v2": {
+    "address": "0x958C41181182e76F221331b2755b77D9e1426A98",
+    "deployBlock": 25944480,
+    "knobs": {
+      "minBacking": "25000000000000000",
+      "pullSurchargeBps": "500",
+      "maxPullsPerTx": "5",
+      "protocolFeeToTokenBps": "10000",
+      "maxStagedListings": "0",
+      "pullsEnabled": true,
+      "withdrawOnly": false,
+      "whitelistEnabled": true,
+      "sellBackAsTokens": true,
+      "whitelistManager": "0x0ad3128429242007d58952c65546ba99b9b70146",
+      "fwairLaunchRegistry": "0x716486a7bd6b4d7409fc4f8b52f0b23d2bcfac72"
+    },
+    "configLatest": {
+      "1": "900000",
+      "2": "105635216111862975908859364934260387362758947578681163548045548039867846446581",
+      "7": "3",
+      "10": "6",
+      "11": "30",
+      "12": "5",
+      "13": "500",
+      "14": "1000",
+      "15": "50",
+      "16": "1000",
+      "17": "9000",
+      "18": "100",
+      "19": "100",
+      "20": "3600",
+      "21": "3600",
+      "22": "25000000000000000",
+      "23": "10000",
+      "24": "58107840699933149319226264896379340422220575262651973310145411177421594153945",
+      "25": "0",
+      "26": "604800",
+      "27": "21600",
+      "28": "1000",
+      "29": "9250",
+      "40": "1",
+      "41": "1",
+      "43": "1",
+      "44": "1",
+      "60": "1232972947259131235767155083770124610558295574842",
+      "61": "9100766495931762177552789031639679582782875851",
+      "62": "61796977938233482145391871588020382772302905670",
+      "63": "1157762043009029760719178682838687237985430563130",
+      "64": "972258135870579478595537420462932229902532290524",
+      "65": "647357761748198298128581925404848558366742522994",
+      "66": "554796862146535778389938234499240263279840630480"
+    },
+    "whitelist": [
+      [
+        "0x000000000000003607fce1ac9e043a86675c5c2f",
+        "CryptoPunks 721"
+      ],
+      [
+        "0x387c41b0b2f1128de44db1bcf8baad085f26392c",
+        "Argonauts"
+      ],
+      [
+        "0x0000ec93127baa929e58e97dd0095a2bfb38ec1d",
+        "identity.md"
+      ],
+      [
+        "0x036721e5a769cc48b3189efbb9cce4471e8a48b1",
+        "Checks"
+      ],
+      [
+        "0x03b8d129a8f6dc62a797b59aa5eebb11ad63dada",
+        "SMOWL"
+      ],
+      [
+        "0x0427743df720801825a5c82e0582b1e915e0f750",
+        "0xmons"
+      ],
+      [
+        "0x062e691c2054de82f28008a8ccc6d7a1c8ce060d",
+        "Pudgy Present"
+      ],
+      [
+        "0x1cb1a5e65610aeff2551a50f76a87a7d3fb649c6",
+        "Cryptoadz"
+      ],
+      [
+        "0x29f1cbc8eccd64b0ce777f5da45c72c47383a620",
+        "FWAIR PFPs"
+      ],
+      [
+        "0x2acab3dea77832c09420663b0e1cb386031ba17b",
+        "DeadFellaz"
+      ],
+      [
+        "0x307af7d28afee82092aa95d35644898311ca5360",
+        "Chimpers"
+      ],
+      [
+        "0x4024c2083f5457874ec489f7c7332680bb86c92b",
+        "Farmer"
+      ],
+      [
+        "0x42069abfe407c60cf4ae4112bedead391dba1cdb",
+        "CryptoDickbutts S3"
+      ],
+      [
+        "0x4440732b0d85e2a77dcb2caedfd940154241249a",
+        "Masks of Luci (Sam Spratt)"
+      ],
+      [
+        "0x4c159520f1117ac58cb5efa1765469cac54dcaab",
+        "pattern recognition"
+      ],
+      [
+        "0x524cab2ec69124574082676e6f654a18df49a048",
+        "Lil Pudgys"
+      ],
+      [
+        "0x5af0d9827e0c53e4799bb226655a1de152a425a5",
+        "Milady"
+      ],
+      [
+        "0x60e4d786628fea6478f785a6d7e704777c86a7c6",
+        "Mutant Ape Yacht Club"
+      ],
+      [
+        "0x614917f589593189ac27ac8b81064cbe450c35e3",
+        "Letters"
+      ],
+      [
+        "0x6339e5e072086621540d0362c4e3cea0d643e114",
+        "Opepen Edition"
+      ],
+      [
+        "0x6efc003d3f3658383f06185503340c2cf27a57b6",
+        "YOU THE REAL MVP"
+      ],
+      [
+        "0x75de5bc35248026fabcb2382cf322bc79dfd1a8c",
+        "Birds"
+      ],
+      [
+        "0x790b2cf29ed4f310bf7641f013c65d4560d28371",
+        "Otherdeed Expanded"
+      ],
+      [
+        "0x79fcdef22feed20eddacbb2587640e45491b757f",
+        "mfers"
+      ],
+      [
+        "0x7a50abab1af2c15fe9780f4f045820294e1a715c",
+        "PXL NET"
+      ],
+      [
+        "0x7a7b26ec72c8497fd068211979199044deeacc3b",
+        "REGULAR ANIMALS"
+      ],
+      [
+        "0x7bd29408f11d2bfc23c34f18275bbf23bb716bc7",
+        "Meebits"
+      ],
+      [
+        "0x8365382935f0fb94b9f0b07524b535ec13d35ad7",
+        "gristle buddeez worldwide"
+      ],
+      [
+        "0x880af717abba38f31ca21673843636a355fb45f3",
+        "DRIP DROP (Dave Krugman)"
+      ],
+      [
+        "0x8a90cab2b38dba80c64b7734e58ee1db38b8992e",
+        "Doodles"
+      ],
+      [
+        "0x8e02d1e68dff0dcebf1cde4ee5f60f1d5a499b1e",
+        "OCH Genesis Ring"
+      ],
+      [
+        "0x8fe1a377b83921fe1429adb1b8fbfecd45de9cd8",
+        "fwogs"
+      ],
+      [
+        "0x9378368ba6b85c1fba5b131b530f5f5bedf21a18",
+        "VeeFriends Series 2"
+      ],
+      [
+        "0x9c8ff314c9bc7f6e59a9d9225fb22946427edc03",
+        "Nouns"
+      ],
+      [
+        "0xa3aee8bce55beea1951ef834b99f3ac60d1abeeb",
+        "VeeFriends"
+      ],
+      [
+        "0xa471f4da9b79645f4f5358e102c62f59c1329aa5",
+        "beef brothko"
+      ],
+      [
+        "0xb852c6b5892256c264cc2c888ea462189154d8d7",
+        "Rektguy"
+      ],
+      [
+        "0xb8ea78fcacef50d41375e44e6814ebba36bb33c4",
+        "Good Vibes Club"
+      ],
+      [
+        "0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d",
+        "Bored Ape Yacht Club"
+      ],
+      [
+        "0xbd3531da5cf5857e7cfaa92426877b022e612cf8",
+        "Pudgy Penguins"
+      ],
+      [
+        "0xbfe47d6d4090940d1c7a0066b63d23875e3e2ac5",
+        "SchizoPosters"
+      ],
+      [
+        "0xc04e0000726ed7c5b9f0045bc0c4806321bc6c65",
+        "XCORE"
+      ],
+      [
+        "0xc2c747e0f7004f9e8817db2ca4997657a7746928",
+        "Hashmasks"
+      ],
+      [
+        "0xc7e67762821b2ed6c0a1f423547b2899822d8650",
+        "Wolf Game"
+      ],
+      [
+        "0xd1169e5349d1cb9941f3dcba135c8a4b9eacfdde",
+        "MAX PAIN (XCOPY)"
+      ],
+      [
+        "0xd16809c0a7d82c9e7552a01fd608fff90efb564f",
+        "RCS"
+      ],
+      [
+        "0xd4b7d9bb20fa20ddada9ecef8a7355ca983cccb1",
+        "Quirkies"
+      ],
+      [
+        "0xd4e4078ca3495de5b1d4db434bebc5a986197782",
+        "Autoglyphs"
+      ],
+      [
+        "0xd716473c8eb83a2102def2b6390d9dfe74b2f580",
+        "Wrappers"
+      ],
+      [
+        "0xd774557b647330c91bf44cfeab205095f7e6c367",
+        "Nakamigos"
+      ],
+      [
+        "0xd83b6493ecebc29a6da555935d1b8572a14fc989",
+        "Ethos Validators"
+      ],
+      [
+        "0xd90829c6c6012e4dde506bd95d7499a04b9a56de",
+        "BROKEN"
+      ],
+      [
+        "0xd92e44ac213b9ebda0178e1523cc0ce177b7fa96",
+        "Beeple Round 2"
+      ],
+      [
+        "0xdd012153e008346591153fff28b0dd6724f0c256",
+        "Beeple Spring Collection"
+      ],
+      [
+        "0xdfea2b364db868b1d2601d6b833d74db4de94460",
+        "RMNANTS"
+      ],
+      [
+        "0xe012baf811cf9c05c408e879c399960d1f305903",
+        "Koda"
+      ],
+      [
+        "0xed5af388653567af2f388e6224dc7c4b3241c544",
+        "Azuki"
+      ],
+      [
+        "0xf8cc77098adb1e8becad7aae11d667aa01db9d7c",
+        "GeoMetric Pepes"
+      ],
+      [
+        "0xfdf1d7694d0ca2f16675c75645f8046dd08a19dd",
+        "Bold Pepes"
+      ],
+      [
+        "0xff9c1b15b16263c61d017ee9f65c50e4ae0113d7",
+        "Loot"
+      ],
+      [
+        "0x355919971b379ca9741ff29939c4ba716f873560",
+        "SAVE ETH"
+      ]
+    ],
+    "oracleExempt": [
+      "0x000000000000003607fce1ac9e043a86675c5c2f"
+    ]
+  },
+  "v1": {
+    "address": "0xB276F62DB0ce8CA2Ca5bc522695bE604521eAc1c",
+    "deployBlock": 25546793,
+    "knobs": {
+      "minBacking": "25000000000000000",
+      "pullSurchargeBps": "250",
+      "maxPullsPerTx": "5",
+      "protocolFeeToTokenBps": "10000",
+      "maxStagedListings": "0",
+      "pullsEnabled": true,
+      "withdrawOnly": false,
+      "whitelistEnabled": true,
+      "sellBackAsTokens": true,
+      "whitelistManager": "0x54b641ac97a9e9375665934b8e7a7d0b2c0e898b",
+      "fwairLaunchRegistry": null
+    },
+    "configLatest": {
+      "1": "900000",
+      "2": "32923739790914395972251757585447496050825495171186086398122878896990203810240",
+      "7": "3",
+      "10": "6",
+      "11": "30",
+      "13": "250",
+      "15": "50",
+      "16": "1000",
+      "17": "9000",
+      "18": "100",
+      "19": "100",
+      "20": "3600",
+      "21": "3600",
+      "22": "25000000000000000",
+      "23": "10000",
+      "24": "58107840699933149319226264896379340422220575262651973310145411177421594153945",
+      "40": "1",
+      "41": "1",
+      "43": "1",
+      "60": "1232972947259131235767155083770124610558295574842",
+      "61": "160372640064888306397119702977937857414174292990",
+      "62": "483619681404083423983131112450058574452820445579",
+      "63": "916399230275668528239785360986862219665425194399"
+    },
+    "whitelist": [
+      [
+        "0x26d7ad0e930b54b84c00daad077ee31ba9e2fb2e",
+        "Ten Thousand Tokens"
+      ],
+      [
+        "0x000000000000003607fce1ac9e043a86675c5c2f",
+        "CryptoPunks 721"
+      ],
+      [
+        "0x5af0d9827e0c53e4799bb226655a1de152a425a5",
+        "Milady"
+      ],
+      [
+        "0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d",
+        "Bored Ape Yacht Club"
+      ],
+      [
+        "0xed5af388653567af2f388e6224dc7c4b3241c544",
+        "Azuki"
+      ],
+      [
+        "0x8a90cab2b38dba80c64b7734e58ee1db38b8992e",
+        "Doodles"
+      ],
+      [
+        "0x1cb1a5e65610aeff2551a50f76a87a7d3fb649c6",
+        "Cryptoadz"
+      ],
+      [
+        "0xbd3531da5cf5857e7cfaa92426877b022e612cf8",
+        "Pudgy Penguins"
+      ],
+      [
+        "0x7bd29408f11d2bfc23c34f18275bbf23bb716bc7",
+        "Meebits"
+      ],
+      [
+        "0x036721e5a769cc48b3189efbb9cce4471e8a48b1",
+        "Checks"
+      ],
+      [
+        "0xd1169e5349d1cb9941f3dcba135c8a4b9eacfdde",
+        "MAX PAIN (XCOPY)"
+      ],
+      [
+        "0xc04e0000726ed7c5b9f0045bc0c4806321bc6c65",
+        "XCORE"
+      ],
+      [
+        "0x42069abfe407c60cf4ae4112bedead391dba1cdb",
+        "CryptoDickbutts S3"
+      ],
+      [
+        "0xa3aee8bce55beea1951ef834b99f3ac60d1abeeb",
+        "VeeFriends"
+      ],
+      [
+        "0x79fcdef22feed20eddacbb2587640e45491b757f",
+        "mfers"
+      ],
+      [
+        "0x2acab3dea77832c09420663b0e1cb386031ba17b",
+        "DeadFellaz"
+      ],
+      [
+        "0x9c8ff314c9bc7f6e59a9d9225fb22946427edc03",
+        "Nouns"
+      ],
+      [
+        "0x6339e5e072086621540d0362c4e3cea0d643e114",
+        "Opepen Edition"
+      ],
+      [
+        "0xd774557b647330c91bf44cfeab205095f7e6c367",
+        "Nakamigos"
+      ],
+      [
+        "0x60e4d786628fea6478f785a6d7e704777c86a7c6",
+        "Mutant Ape Yacht Club"
+      ],
+      [
+        "0x8e02d1e68dff0dcebf1cde4ee5f60f1d5a499b1e",
+        "OCH Genesis Ring"
+      ],
+      [
+        "0x7a50abab1af2c15fe9780f4f045820294e1a715c",
+        "PXL NET"
+      ],
+      [
+        "0xdfea2b364db868b1d2601d6b833d74db4de94460",
+        "RMNANTS"
+      ],
+      [
+        "0x7a7b26ec72c8497fd068211979199044deeacc3b",
+        "REGULAR ANIMALS"
+      ],
+      [
+        "0xa471f4da9b79645f4f5358e102c62f59c1329aa5",
+        "beef brothko"
+      ],
+      [
+        "0x03b8d129a8f6dc62a797b59aa5eebb11ad63dada",
+        "SMOWL"
+      ],
+      [
+        "0x4440732b0d85e2a77dcb2caedfd940154241249a",
+        "Masks of Luci (Sam Spratt)"
+      ],
+      [
+        "0xd4b7d9bb20fa20ddada9ecef8a7355ca983cccb1",
+        "Quirkies"
+      ],
+      [
+        "0x307af7d28afee82092aa95d35644898311ca5360",
+        "Chimpers"
+      ],
+      [
+        "0x790b2cf29ed4f310bf7641f013c65d4560d28371",
+        "Otherdeed Expanded"
+      ],
+      [
+        "0xe012baf811cf9c05c408e879c399960d1f305903",
+        "Koda"
+      ],
+      [
+        "0xd92e44ac213b9ebda0178e1523cc0ce177b7fa96",
+        "Beeple Round 2"
+      ],
+      [
+        "0xdd012153e008346591153fff28b0dd6724f0c256",
+        "Beeple Spring Collection"
+      ],
+      [
+        "0x75de5bc35248026fabcb2382cf322bc79dfd1a8c",
+        "Birds"
+      ],
+      [
+        "0xb852c6b5892256c264cc2c888ea462189154d8d7",
+        "Rektguy"
+      ],
+      [
+        "0x9378368ba6b85c1fba5b131b530f5f5bedf21a18",
+        "VeeFriends Series 2"
+      ],
+      [
+        "0xb8ea78fcacef50d41375e44e6814ebba36bb33c4",
+        "Good Vibes Club"
+      ],
+      [
+        "0xab00000000002ade39f58f9d8278a31574ffbe77",
+        "Art Blocks"
+      ],
+      [
+        "0xe18f2247fe4a69c0e2210331b0604f6d10fece9e",
+        "glitch Gallery"
+      ],
+      [
+        "0x4c159520f1117ac58cb5efa1765469cac54dcaab",
+        "pattern recognition"
+      ],
+      [
+        "0x6efc003d3f3658383f06185503340c2cf27a57b6",
+        "YOU THE REAL MVP"
+      ],
+      [
+        "0x614917f589593189ac27ac8b81064cbe450c35e3",
+        "Letters"
+      ],
+      [
+        "0xc7e67762821b2ed6c0a1f423547b2899822d8650",
+        "Wolf Game"
+      ],
+      [
+        "0x4024c2083f5457874ec489f7c7332680bb86c92b",
+        "Farmer"
+      ],
+      [
+        "0xd0090373e80236adb6c07cf21b7395938cca46b3",
+        "everything vs nothing"
+      ],
+      [
+        "0xd90829c6c6012e4dde506bd95d7499a04b9a56de",
+        "BROKEN"
+      ],
+      [
+        "0xf8cc77098adb1e8becad7aae11d667aa01db9d7c",
+        "GeoMetric Pepes"
+      ],
+      [
+        "0xd716473c8eb83a2102def2b6390d9dfe74b2f580",
+        "Wrappers"
+      ],
+      [
+        "0x942bc2d3e7a589fe5bd4a5c6ef9727dfd82f5c8a",
+        "Art Blocks Explorations"
+      ],
+      [
+        "0xbdde08bd57e5c9fd563ee7ac61618cb2ecdc0ce0",
+        "CryptoCitizens"
+      ],
+      [
+        "0x8fe1a377b83921fe1429adb1b8fbfecd45de9cd8",
+        "fwogs"
+      ],
+      [
+        "0x062e691c2054de82f28008a8ccc6d7a1c8ce060d",
+        "Pudgy Present"
+      ],
+      [
+        "0x524cab2ec69124574082676e6f654a18df49a048",
+        "Lil Pudgys"
+      ],
+      [
+        "0x059edd72cd353df5106d2b9cc5ab83a52287ac3a",
+        "Art Blocks (Squiggle)"
+      ],
+      [
+        "0x880af717abba38f31ca21673843636a355fb45f3",
+        "DRIP DROP (Dave Krugman)"
+      ],
+      [
+        "0xd16809c0a7d82c9e7552a01fd608fff90efb564f",
+        "RCS"
+      ],
+      [
+        "0xd83b6493ecebc29a6da555935d1b8572a14fc989",
+        "Ethos Validators"
+      ],
+      [
+        "0x0427743df720801825a5c82e0582b1e915e0f750",
+        "0xmons"
+      ],
+      [
+        "0xd4e4078ca3495de5b1d4db434bebc5a986197782",
+        "Autoglyphs"
+      ],
+      [
+        "0x727c739f07a89f11e883fe0f34937c55e4c3d74a",
+        "FWA Token Packs"
+      ],
+      [
+        "0x470879abd61fdca91436fe27ed87db2c8650f3e7",
+        "Locked FWA Token Packs"
+      ],
+      [
+        "0x8e1bb30a0fda7cb51c81f1be29976f7ee7508fcc",
+        "Collector Crypt"
+      ],
+      [
+        "0xbfe47d6d4090940d1c7a0066b63d23875e3e2ac5",
+        "SchizoPosters"
+      ],
+      [
+        "0x8365382935f0fb94b9f0b07524b535ec13d35ad7",
+        "gristle buddeez worldwide"
+      ],
+      [
+        "0xfdf1d7694d0ca2f16675c75645f8046dd08a19dd",
+        "Bold Pepes"
+      ],
+      [
+        "0xc2c747e0f7004f9e8817db2ca4997657a7746928",
+        "Hashmasks"
+      ],
+      [
+        "0x0f02e979d95964b7e9112e1eadc7e9b17138c967",
+        "Beezie"
+      ],
+      [
+        "0xa97e583b2e069972e13812b4bbcb2329c668ece5",
+        "OnChainHoodies"
+      ],
+      [
+        "0x2d3d5bad5097de32d310c8a5f59efe034bdc20f9",
+        "StonkBrokers"
+      ],
+      [
+        "0xbd3127e5e8cf132deb43a1756d3bbdf6da4b4572",
+        "CASHCAT"
+      ],
+      [
+        "0x81ec16dc6158b6c533cc0f3b9272746c595e87c6",
+        "pyopyopyopyo"
+      ],
+      [
+        "0xa7d8d9ef8d8ce8992df33d8b8cf4aebabd5bd270",
+        "Art Blocks (Curated)"
+      ],
+      [
+        "0x99a9b7c1116f9ceeb1652de04d5969cce509b069",
+        "Art Blocks (Presents)"
+      ],
+      [
+        "0xab0000000000aa06f89b268d604a9c1c41524ac6",
+        "Art Blocks (Studio)"
+      ],
+      [
+        "0x29f1cbc8eccd64b0ce777f5da45c72c47383a620",
+        "FWAIR PFPs"
+      ],
+      [
+        "0x387c41b0b2f1128de44db1bcf8baad085f26392c",
+        "Argonauts"
+      ],
+      [
+        "0xff9c1b15b16263c61d017ee9f65c50e4ae0113d7",
+        "Loot"
+      ],
+      [
+        "0x355919971b379ca9741ff29939c4ba716f873560",
+        "SAVE ETH"
+      ],
+      [
+        "0xe1c7dc5cd4becf0c5fcdda29ed914764d4884bbf",
+        "COPE SALADA"
+      ],
+      [
+        "0xdd0bb36698cf74ba339fd2b7bd687867afa2c1d2",
+        "Bitcoin Puppets"
+      ],
+      [
+        "0x90401bdca1c2d928bb4c5b374e1367aa1174e624",
+        "NodeMonkes"
+      ],
+      [
+        "0x0000ec93127baa929e58e97dd0095a2bfb38ec1d",
+        "identity.md"
+      ]
+    ],
+    "oracleExempt": []
+  }
+}

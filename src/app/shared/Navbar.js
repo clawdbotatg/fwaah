@@ -1,6 +1,6 @@
 import React, { Component } from 'react';
 import { Link } from 'react-router-dom';
-import { FWA_ADDRESS, RPC_LABEL, onRpcLabel, abiNinjaUrl } from '../fwa/fwa';
+import { FWA_ADDRESS, RPC_LABEL, onRpcLabel, abiNinjaUrl, POOL, OTHER_POOL, IS_V2, poolUrl } from '../fwa/fwa';
 import { injected, connectWallet, disconnectWallet, onAccountsChanged, autoReconnectAllowed } from '../fwa/wallet';
 import FwaAddress from '../fwa/FwaAddress';
 
@@ -74,7 +74,12 @@ class Navbar extends Component {
           <ul className="navbar-nav w-100">
             <li className="nav-item w-100 d-none d-lg-flex align-items-center">
               <span className="nav-link text-muted d-flex align-items-center">
-                fwaah.com · core&nbsp;<FwaAddress address={FWA_ADDRESS} size="sm" />
+                fwaah.com ·&nbsp;
+                <span className={'badge mr-1 ' + (IS_V2 ? 'badge-primary' : 'badge-secondary')} title={POOL.title}>{POOL.label}</span>
+                core&nbsp;<FwaAddress address={FWA_ADDRESS} size="sm" />
+                <a className="pool-switch ml-2" href={poolUrl(OTHER_POOL.id)} title={'switch this dashboard to the ' + OTHER_POOL.label + ' pool (' + OTHER_POOL.title + ')'}>
+                  <i className="mdi mdi-swap-horizontal"></i> {OTHER_POOL.label}
+                </a>
               </span>
             </li>
           </ul>
